@@ -1,91 +1,156 @@
 import * as cheerio from "cheerio";
 
+// Cache spettacoli (10 minuti)
 let cache = null;
 let lastFetch = 0;
 
 async function getSpettacoli() {
-  const res = await fetch("https://www.tordinonateatro.it/");
-  const html = await res.text();
+  const now = Date.now();
 
-  const $ = cheerio.load(html);
+  if (!cache || now - lastFetch > 10 * 60 * 1000) {
+    const res = await fetch("https://www.tordinonateatro.it/");
+    const html = await res.text();
 
-  let spettacoli = [];
+    const $ = cheerio.load(html);
 
-  $("article").each((i, el) => {
-    const titolo = $(el).find("h1, h2, h3").first().text().trim();
-    const descrizione = $(el).find("p").text().trim();
+    let spettacoli = [];
 
-    if (titolo) {
-      spettacoli.push({
-        titolo,
-        descrizione: descrizione.substring(0, 200)
-      });
-    }
-  });
+    $("article").each((i, el) => {
+      const titolo = $(el).find("h1, h2, h3").first().text().trim();
+      const descrizione = $(el).find("p").text().trim();
 
-  return spettacoli;
-}
+      if (
+        titolo &&
+        titolo.length > 5 &&
+        !titolo.toLowerCase().includes("menu")
+      ) {
+        spettacoli.push({
+          titolo,
+          descrizione: descrizione.substring(0, 200)
+        });
+      }
+    });
+
+    cache = spettacoli;
+    lastFetch = now;
+  }
 
   return cache;
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).send("Method not allowed");
-  }
+  try {
+    if (req.method !== "POST") {
+      return res.status(405).send("Method not allowed");
+    }
 
-  const { message } = req.body;
+    const { message } = req.body;
 
-  const spettacoli = await getSpettacoli();
+    if (!message) {
+      return res.status(400).json({ reply: "Messaggio vuoto." });
+    }
 
-  const lista = spettacoli.map(s =>
-    `- ${s.titolo}: ${s.descrizione.substring(0, 100)}`
-  ).join("\n");
+    const spettacoli = await getSpettacoli();
 
-  const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "llama3-70b-8192",
-      messages: [
-        {
-          role: "system",
-          content: `
-Sei l'assistente di un teatro.
-Parla in modo accogliente e naturale.
+    const listaSpettacoli = spettacoli
+      .map(
+        (s) =>
+          `- ${s.titolo}: ${s.descrizione.replace(/\s+/g, " ").trim()}`
+      )
+      .join("\n");
 
-Se l'utente vuole prenotare raccogli:
-nome, spettacolo, data, numero posti.
+    // Prompt teatrale
+    const systemPrompt = `
+Sei l'assistente del Teatro Tor di Nona.
 
-Quando completo scrivi:
+Accogli gli spettatori con calore e professionalità.
+Parli in modo naturale, elegante ma semplice.
+
+Aiuti a:
+- scoprire gli spettacoli
+- consigliare in base ai gusti
+- prenotare posti
+
+Quando proponi spettacoli:
+non fare elenchi freddi, ma suggerimenti naturali.
+
+Esempio:
+"Se cerchi qualcosa di intenso, potresti apprezzare..."
+
+Prenotazioni:
+raccogli:
+- nome
+- spettacolo
+- data
+- numero posti
+
+Fai una domanda alla volta.
+
+Quando hai tutti i dati scrivi ESATTAMENTE:
 PRENOTAZIONE CONFERMATA
 
-Spettacoli:
-${lista}
-`
+e poi il riepilogo.
+
+IMPORTANTE:
+Le date potrebbero essere nelle descrizioni.
+Se non sei sicuro, chiedi chiarimenti.
+
+Tono:
+- umano
+- accogliente
+- leggermente teatrale
+
+Spettacoli disponibili:
+${listaSpettacoli}
+`;
+
+    // Chiamata a Groq
+    const aiResponse = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
         },
-        { role: "user", content: message }
-      ]
-    })
-  });
+        body: JSON.stringify({
+          model: "llama3-70b-8192",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message }
+          ]
+        })
+      }
+    );
 
-  const data = await aiResponse.json();
-  const reply = data.choices[0].message.content;
+    const data = await aiResponse.json();
 
-  // invio Telegram
-  if (reply.includes("PRENOTAZIONE CONFERMATA")) {
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: process.env.CHAT_ID,
-        text: reply
-      })
+    const reply =
+      data?.choices?.[0]?.message?.content ||
+      "Mi dispiace, non sono riuscito a rispondere.";
+
+    // Invio a Telegram se prenotazione completata
+    if (reply.includes("PRENOTAZIONE CONFERMATA")) {
+      await fetch(
+        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: process.env.CHAT_ID,
+            text: `🎭 Nuova prenotazione - Teatro Tor di Nona\n\n${reply}`
+          })
+        }
+      );
+    }
+
+    return res.status(200).json({ reply });
+
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      reply: "C'è stato un problema tecnico. Riprova tra poco."
     });
   }
-
-  res.status(200).json({ reply });
 }
