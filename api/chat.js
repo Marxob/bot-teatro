@@ -61,7 +61,7 @@ export default async function handler(req, res) {
 
     // Prompt teatrale
     const systemPrompt = `
-Sei l'assistente del Teatro Tor di Nona.
+Sei l'assistente del Teatro Tordinona.
 
 Accogli gli spettatori con calore e professionalità.
 Parli in modo naturale, elegante ma semplice.
