@@ -4,28 +4,27 @@ let cache = null;
 let lastFetch = 0;
 
 async function getSpettacoli() {
-  const now = Date.now();
+  const res = await fetch("https://www.tordinonateatro.it/");
+  const html = await res.text();
 
-  if (!cache || now - lastFetch > 10 * 60 * 1000) {
-    const res = await fetch("https://TUO-SITO.blogspot.com/");
-    const html = await res.text();
+  const $ = cheerio.load(html);
 
-    const $ = cheerio.load(html);
-    let spettacoli = [];
+  let spettacoli = [];
 
-    $(".post").each((i, el) => {
-      const titolo = $(el).find("h3").text();
-      const descrizione = $(el).find(".post-body").text();
+  $("article").each((i, el) => {
+    const titolo = $(el).find("h1, h2, h3").first().text().trim();
+    const descrizione = $(el).find("p").text().trim();
 
+    if (titolo) {
       spettacoli.push({
         titolo,
-        descrizione
+        descrizione: descrizione.substring(0, 200)
       });
-    });
+    }
+  });
 
-    cache = spettacoli;
-    lastFetch = now;
-  }
+  return spettacoli;
+}
 
   return cache;
 }
