@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 
-// Cache spettacoli (10 minuti)
+// cache spettacoli
 let cache = null;
 let lastFetch = 0;
 
@@ -39,19 +39,18 @@ async function getSpettacoli() {
 }
 
 export default async function handler(req, res) {
-// CORS fix
-res.setHeader("Access-Control-Allow-Origin", "*");
-res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-// gestisce preflight
-if (req.method === "OPTIONS") {
-  return res.status(200).end();
-}
-if (req.method !== "POST") {
-    return res.status(405).send("Method not allowed");
-}
-try {
+  // ✅ CORS (PRIMA DI TUTTO)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // ✅ risposta preflight
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  try {
     if (req.method !== "POST") {
       return res.status(405).send("Method not allowed");
     }
@@ -71,9 +70,8 @@ try {
       )
       .join("\n");
 
-    // Prompt teatrale
     const systemPrompt = `
-Sei l'assistente del Teatro Tordinona.
+Sei l'assistente del Teatro Tor di Nona.
 
 Accogli gli spettatori con calore e professionalità.
 Parli in modo naturale, elegante ma semplice.
@@ -86,9 +84,6 @@ Aiuti a:
 Quando proponi spettacoli:
 non fare elenchi freddi, ma suggerimenti naturali.
 
-Esempio:
-"Se cerchi qualcosa di intenso, potresti apprezzare..."
-
 Prenotazioni:
 raccogli:
 - nome
@@ -100,8 +95,6 @@ Fai una domanda alla volta.
 
 Quando hai tutti i dati scrivi ESATTAMENTE:
 PRENOTAZIONE CONFERMATA
-
-e poi il riepilogo.
 
 IMPORTANTE:
 Le date potrebbero essere nelle descrizioni.
@@ -116,7 +109,7 @@ Spettacoli disponibili:
 ${listaSpettacoli}
 `;
 
-    // Chiamata a Groq
+    // chiamata Groq
     const aiResponse = await fetch(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -135,13 +128,17 @@ ${listaSpettacoli}
       }
     );
 
+    if (!aiResponse.ok) {
+      throw new Error("Errore chiamata AI");
+    }
+
     const data = await aiResponse.json();
 
     const reply =
       data?.choices?.[0]?.message?.content ||
       "Mi dispiace, non sono riuscito a rispondere.";
 
-    // Invio a Telegram se prenotazione completata
+    // invio Telegram
     if (reply.includes("PRENOTAZIONE CONFERMATA")) {
       await fetch(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
@@ -159,7 +156,7 @@ ${listaSpettacoli}
     return res.status(200).json({ reply });
 
   } catch (error) {
-    console.error(error);
+    console.error("ERRORE BACKEND:", error);
 
     return res.status(500).json({
       reply: "C'è stato un problema tecnico. Riprova tra poco."
