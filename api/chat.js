@@ -48,8 +48,10 @@ res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 if (req.method === "OPTIONS") {
   return res.status(200).end();
 }
-
-  try {
+if (req.method !== "POST") {
+    return res.status(405).send("Method not allowed");
+}
+try {
     if (req.method !== "POST") {
       return res.status(405).send("Method not allowed");
     }
