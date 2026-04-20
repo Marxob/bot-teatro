@@ -131,7 +131,11 @@ ${listaSpettacoli}
     );
 
     if (!aiResponse.ok) {
-      throw new Error("Errore chiamata AI");
+     if (!aiResponse.ok) {
+  const errText = await aiResponse.text();
+  console.error("ERRORE GROQ:", errText);
+  throw new Error("Errore chiamata AI");
+}
     }
 
     const data = await aiResponse.json();
