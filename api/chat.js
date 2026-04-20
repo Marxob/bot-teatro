@@ -40,6 +40,8 @@ async function getSpettacoli() {
 
 export default async function handler(req, res) {
 
+ console.log("GROQ:", process.env.GROQ_API_KEY);
+  
   // ✅ CORS (PRIMA DI TUTTO)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
