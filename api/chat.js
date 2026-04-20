@@ -19,11 +19,7 @@ async function getSpettacoli() {
       const titolo = $(el).find("h1, h2, h3").first().text().trim();
       const descrizione = $(el).find("p").text().trim();
 
-      if (
-        titolo &&
-        titolo.length > 5 &&
-        !titolo.toLowerCase().includes("menu")
-      ) {
+      if (titolo && titolo.length > 5 && !titolo.toLowerCase().includes("menu")) {
         spettacoli.push({
           titolo,
           descrizione: descrizione.substring(0, 200)
@@ -40,14 +36,11 @@ async function getSpettacoli() {
 
 export default async function handler(req, res) {
 
- console.log("GROQ:", process.env.GROQ_API_KEY);
-  
-  // ✅ CORS (PRIMA DI TUTTO)
+  // ✅ CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // ✅ risposta preflight
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -66,10 +59,7 @@ export default async function handler(req, res) {
     const spettacoli = await getSpettacoli();
 
     const listaSpettacoli = spettacoli
-      .map(
-        (s) =>
-          `- ${s.titolo}: ${s.descrizione.replace(/\s+/g, " ").trim()}`
-      )
+      .map(s => `- ${s.titolo}: ${s.descrizione.replace(/\s+/g, " ").trim()}`)
       .join("\n");
 
     const systemPrompt = `
@@ -98,44 +88,32 @@ Fai una domanda alla volta.
 Quando hai tutti i dati scrivi ESATTAMENTE:
 PRENOTAZIONE CONFERMATA
 
-IMPORTANTE:
-Le date potrebbero essere nelle descrizioni.
-Se non sei sicuro, chiedi chiarimenti.
-
-Tono:
-- umano
-- accogliente
-- leggermente teatrale
-
 Spettacoli disponibili:
 ${listaSpettacoli}
 `;
 
-    // chiamata Groq
-    const aiResponse = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: message }
-          ]
-        })
-      }
-    );
+    // 🔥 OPENROUTER
+    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://www.tordinonateatro.it",
+        "X-Title": "Teatro Chatbot"
+      },
+      body: JSON.stringify({
+        model: "mistralai/mistral-7b-instruct",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message }
+        ]
+      })
+    });
 
     if (!aiResponse.ok) {
-     if (!aiResponse.ok) {
-  const errText = await aiResponse.text();
-  console.error("ERRORE GROQ:", errText);
-  throw new Error("Errore chiamata AI");
-}
+      const errText = await aiResponse.text();
+      console.error("ERRORE OPENROUTER:", errText);
+      throw new Error("Errore AI");
     }
 
     const data = await aiResponse.json();
@@ -144,20 +122,16 @@ ${listaSpettacoli}
       data?.choices?.[0]?.message?.content ||
       "Mi dispiace, non sono riuscito a rispondere.";
 
-    // invio Telegram
-    if (false) {
-    //if (reply.includes("PRENOTAZIONE CONFERMATA")) {
-      await fetch(
-        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: process.env.CHAT_ID,
-            text: `🎭 Nuova prenotazione - Teatro Tor di Nona\n\n${reply}`
-          })
-        }
-      );
+    // 📩 INVIO TELEGRAM
+    if (reply.includes("PRENOTAZIONE CONFERMATA")) {
+      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: process.env.CHAT_ID,
+          text: `🎭 Nuova prenotazione\n\n${reply}`
+        })
+      });
     }
 
     return res.status(200).json({ reply });
