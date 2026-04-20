@@ -101,14 +101,14 @@ ${listaSpettacoli}
         "HTTP-Referer": "https://www.tordinonateatro.it",
         "X-Title": "Teatro Chatbot"
       },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3.1-8b-instruct",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message }
-        ]
-      })
-    });
+  body: JSON.stringify({
+  model: "meta-llama/llama-3.1-8b-instruct",
+  max_tokens: 500,
+  messages: [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: message }
+  ]
+})
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
