@@ -102,7 +102,7 @@ ${listaSpettacoli}
         "X-Title": "Teatro Chatbot"
       },
       body: JSON.stringify({
-        model: "qwen/qwen2.5-7b-instruct",
+        model: "meta-llama/llama-3.1-8b-instruct",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message }
