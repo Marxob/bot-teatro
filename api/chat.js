@@ -139,7 +139,8 @@ ${listaSpettacoli}
       "Mi dispiace, non sono riuscito a rispondere.";
 
     // invio Telegram
-    if (reply.includes("PRENOTAZIONE CONFERMATA")) {
+    if (false) {
+    //if (reply.includes("PRENOTAZIONE CONFERMATA")) {
       await fetch(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
         {
