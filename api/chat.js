@@ -174,7 +174,7 @@ ${listaSpettacoli}
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "mistralai/mistral-7b-instruct",
+        model: "openchat/openchat-7b",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message }
