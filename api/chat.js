@@ -192,17 +192,24 @@ ${listaSpettacoli}
 
     let aiText = data?.choices?.[0]?.message?.content || "{}";
 
-    let parsed;
+  let parsed;
 
-    try {
-      parsed = JSON.parse(aiText);
-    } catch (e) {
-      console.error("JSON parse error:", aiText);
-      parsed = {
-        intent: "informazione",
-        message: aiText
-      };
-    }
+try {
+  // prova parsing diretto
+  parsed = JSON.parse(aiText);
+} catch (e) {
+  try {
+    // prova a estrarre JSON dal testo
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+  } catch (err2) {
+    console.error("JSON parse error:", aiText);
+    parsed = {
+      intent: "informazione",
+      message: aiText
+    };
+  }
+}
 
     const reply = parsed.message || "Errore risposta AI";
 
