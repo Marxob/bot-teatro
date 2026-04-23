@@ -138,7 +138,7 @@ Formato JSON:
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "AI_MODEL",
+        model: "openroute/free",
         response_format: { type: "json_object" }, // 🔥 IMPORTANTISSIMO
         messages: [
           { role: "system", content: prompt },
