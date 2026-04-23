@@ -53,7 +53,7 @@ function getMissing(s) {
 // ----------------------
 // 🤖 HANDLER
 // ----------------------
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
 
   // ✅ CORS HEADERS (SEMPRE)
   res.setHeader("Access-Control-Allow-Origin", "https://testeprf12426.blogspot.com");
