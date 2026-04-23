@@ -137,7 +137,7 @@ Rispondi SEMPRE in JSON:
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "AI_MODEL",
+      model: "openai/gpt-oss-120b:free",
       messages: [
         { role: "system", content: prompt }
       ]
