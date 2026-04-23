@@ -144,7 +144,7 @@ Rispondi come una persona reale.
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "openai/gpt-4o-mini",
+          model: "AI_MODEL",
           messages: [
             { role: "system", content: prompt },
             { role: "user", content: message }
@@ -152,8 +152,18 @@ Rispondi come una persona reale.
         })
       });
 
-      const data = await aiResponse.json();
-      aiText = data?.choices?.[0]?.message?.content || "";
+   let aiText = "";
+
+try {
+  const raw = await aiResponse.text();
+  console.log("AI RAW:", raw);
+
+  const parsed = JSON.parse(raw);
+  aiText = parsed?.choices?.[0]?.message?.content || "";
+
+} catch (e) {
+  console.error("AI ERROR:", e);
+}
 
     } catch (e) {
       console.error("Errore AI:", e);
