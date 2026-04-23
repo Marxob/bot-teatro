@@ -1,8 +1,11 @@
-// ----------------------
+try {
+
+  // ----------------------
 // 📅 SPETTACOLI
 // ----------------------
-async function getSpettacoli() {
-  try {
+
+  async function getSpettacoli() {
+
     const res = await fetch("https://www.tordinonateatro.it/feeds/posts/default?alt=json");
     const data = await res.json();
 
