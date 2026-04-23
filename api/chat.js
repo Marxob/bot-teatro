@@ -144,7 +144,7 @@ Rispondi come una persona reale.
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "AI_MODEL",
+          model: "meta-llama/llama-3-8b-instruct:free",
           messages: [
             { role: "system", content: prompt },
             { role: "user", content: message }
