@@ -104,7 +104,7 @@ Date: ${s.dateRaw.join(", ") || "non specificate"}
     // 🧠 PROMPT STRUTTURATO
     // ----------------------
     const systemPrompt = `
-Sei l'assistente del Teatro Tordinona.
+Sei l'assistente del Teatro Tor di Nona.
 
 OBIETTIVO:
 Il tuo compito è accogliere i visitatori con calore e professionalità, fornire informazioni sugli spettacoli e accompagnarli nella prenotazione in modo naturale.
@@ -174,7 +174,7 @@ ${listaSpettacoli}
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "AI_MODEL",
+        model: "AI:MODEL",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message }
@@ -192,24 +192,17 @@ ${listaSpettacoli}
 
     let aiText = data?.choices?.[0]?.message?.content || "{}";
 
-  let parsed;
+    let parsed;
 
-try {
-  // prova parsing diretto
-  parsed = JSON.parse(aiText);
-} catch (e) {
-  try {
-    // prova a estrarre JSON dal testo
-    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
-    parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-  } catch (err2) {
-    console.error("JSON parse error:", aiText);
-    parsed = {
-      intent: "informazione",
-      message: aiText
-    };
-  }
-}
+    try {
+      parsed = JSON.parse(aiText);
+    } catch (e) {
+      console.error("JSON parse error:", aiText);
+      parsed = {
+        intent: "informazione",
+        message: aiText
+      };
+    }
 
     const reply = parsed.message || "Errore risposta AI";
 
