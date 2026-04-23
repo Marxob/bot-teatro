@@ -144,7 +144,7 @@ Rispondi come una persona reale.
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "mistralai/mistral-7b-instruct",
+          model: "AI_MODEL",
           messages: [
             { role: "system", content: prompt },
             { role: "user", content: message }
