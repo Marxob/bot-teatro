@@ -55,14 +55,31 @@ function getMissing(s) {
 // ----------------------
 export default async function handler(req, res) {
 
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // ✅ CORS HEADERS (SEMPRE)
+  res.setHeader("Access-Control-Allow-Origin", "https://testeprf12426.blogspot.com");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method !== "POST") {
-    return res.status(405).send("Method not allowed");
+  // ✅ PREFLIGHT (FONDAMENTALE)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
-  const { message, userId = "default" } = req.body;
-  const session = getSession(userId);
+  try {
+
+    // ✅ SOLO POST
+    if (req.method !== "POST") {
+      return res.status(405).json({ reply: "Method not allowed" });
+    }
+
+    // ✅ SAFE BODY (evita crash su OPTIONS)
+    const { message, userId = "default" } = req.body || {};
+
+    if (!message) {
+      return res.status(400).json({ reply: "Messaggio vuoto." });
+    }
+
+    const session = getSession(userId);
 
   // ----------------------
   // 🎭 SPETTACOLI
