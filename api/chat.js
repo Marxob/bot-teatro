@@ -1,7 +1,5 @@
-// import * as cheerio from "cheerio";
-
 // ----------------------
-// 📅 ESTRAZIONE SPETTACOLI
+// 📅 SPETTACOLI
 // ----------------------
 async function getSpettacoli() {
   try {
@@ -12,54 +10,14 @@ async function getSpettacoli() {
       return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     }
 
-    const mesi = {
-      gennaio: 0, febbraio: 1, marzo: 2, aprile: 3,
-      maggio: 4, giugno: 5, luglio: 6, agosto: 7,
-      settembre: 8, ottobre: 9, novembre: 10, dicembre: 11
-    };
+    const entries = data?.feed?.entry || [];
 
-    const dateRegex = /(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s*(\d{4})?/gi;
-
-    function extractDates(text) {
-      const dates = [];
-
-      const matches = [...text.matchAll(dateRegex)];
-      matches.forEach(m => {
-        const day = Number(m[1]);
-        const month = mesi[m[2].toLowerCase()];
-        const year = m[3] ? Number(m[3]) : new Date().getFullYear();
-
-        const d = new Date(year, month, day);
-        d.setHours(0,0,0,0);
-
-        if (!isNaN(d.getTime())) {
-          dates.push({
-            raw: m[0],
-            iso: d.toISOString().split("T")[0]
-          });
-        }
-      });
-
-      return dates;
-    }
-
-    return (data.feed.entry || [])
-      .map(post => {
-        const titolo = post.title.$t.trim();
-        const contenuto = stripHtml(post.content?.$t || "");
-        const link = (post.link || []).find(l => l.rel === "alternate")?.href || "";
-
-        const dates = extractDates(contenuto);
-
-        return {
-          titolo,
-          descrizione: contenuto.slice(0, 300),
-          link,
-          dateRaw: dates.map(d => d.raw),
-          dateISO: dates.map(d => d.iso)
-        };
-      })
-      .slice(0, 6);
+    return entries
+      .map(post => ({
+        titolo: post.title?.$t?.trim() || "",
+        descrizione: stripHtml(post.content?.$t || "").slice(0, 100)
+      }))
+      .slice(0, 4);
 
   } catch (err) {
     console.error("Errore feed:", err);
@@ -68,13 +26,43 @@ async function getSpettacoli() {
 }
 
 // ----------------------
+// 🧠 SESSIONI
+// ----------------------
+const sessions = {};
+
+function getSession(userId) {
+  if (!sessions[userId]) {
+    sessions[userId] = {
+      nome: "",
+      spettacolo: "",
+      data: "",
+      posti: ""
+    };
+  }
+  return sessions[userId];
+}
+
+// ----------------------
+// ❓ CAMPI MANCANTI
+// ----------------------
+function getMissing(s) {
+  if (!s.spettacolo) return "spettacolo";
+  if (!s.nome) return "nome";
+  if (!s.posti) return "posti";
+  if (!s.data) return "data";
+  return null;
+}
+
+// ----------------------
 // 🤖 HANDLER
 // ----------------------
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
 
-  // ✅ CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  // ----------------------
+  // 🌐 CORS
+  // ----------------------
+  res.setHeader("Access-Control-Allow-Origin", "https://testeprf12426.blogspot.com");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
@@ -82,90 +70,58 @@ export default async function handler(req, res) {
   }
 
   try {
+
     if (req.method !== "POST") {
-      return res.status(405).send("Method not allowed");
+      return res.status(405).json({ reply: "Method not allowed" });
     }
 
-    const { message } = req.body;
+    const { message, userId = "default" } = req.body || {};
 
     if (!message) {
       return res.status(400).json({ reply: "Messaggio vuoto." });
     }
 
+    const session = getSession(userId);
+
+    // ----------------------
+    // 🎭 SPETTACOLI
+    // ----------------------
     const spettacoli = await getSpettacoli();
-
-    const listaSpettacoli = spettacoli.map(s => `
-Titolo: ${s.titolo}
-Descrizione: ${s.descrizione}
-Date: ${s.dateRaw.join(", ") || "non specificate"}
-`).join("\n");
+    const lista = spettacoli.map(s => s.titolo).join(", ");
 
     // ----------------------
-    // 🧠 PROMPT STRUTTURATO
+    // 🧠 INTENT DETECTION (FONDAMENTALE)
     // ----------------------
-    const systemPrompt = `
-Sei l'assistente del Teatro Tor di Nona.
+    const lowerMsg = message.toLowerCase();
 
-OBIETTIVO:
-Il tuo compito è accogliere i visitatori con calore e professionalità, fornire informazioni sugli spettacoli e accompagnarli nella prenotazione in modo naturale.
+    const isBookingIntent =
+      /prenot|bigliett|posto|spettacolo|disponibil|voglio|comprare/i.test(lowerMsg);
 
-🎨 STILE
+    // ----------------------
+    // 🧠 PROMPT AI (SOLO ESTRAZIONE)
+    // ----------------------
+    const prompt = `
+Estrai SOLO dati dal messaggio.
 
-- Elegante, accogliente e professionale
-- Ispirato alla magia del teatro
-- Conversazionale (non sembrare un modulo)
-- Breve e chiaro
+Regole:
+- NON inventare nulla
+- Se non presente lascia ""
 
----
-
-🎯 COMPORTAMENTO GENERALE
-
-- Saluta l’utente e chiedi come puoi aiutarlo
-- Offri 2 possibilità:
-• prossima programmazione
-• prenotazione
-- Oppure rispondi liberamente alle richieste
-
-
-Rispondi SEMPRE in JSON valido.
-
-Formato:
+Formato JSON:
 
 {
-  "intent": "informazione | richiesta_dati | prenotazione",
-  "message": "testo per utente",
+  "message": "",
   "nome": "",
   "spettacolo": "",
   "data": "",
   "posti": ""
 }
 
-Regole:
-Quando l’utente vuole prenotare:
-- guida la conversazione in modo naturale
-- NON fare un elenco rigido di domande
-- raccogli i dati uno alla volta
-- Se mancano dati → richiesta_dati
-- Se completo → prenotazione
-- NON scrivere testo fuori JSON
-
-LOGICA
-
-- Chiedi SOLO i dati mancanti
-- Ordine consigliato:
-1. spettacolo
-2. nome
-3. posti
-4. data
-
-
-
-Spettacoli:
-${listaSpettacoli}
+Messaggio: "${message}"
 `;
 
     // ----------------------
-    // 🤖 CHIAMATA OPENROUTER
+    // 🤖 OPENROUTER
     // ----------------------
     const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -174,66 +130,116 @@ ${listaSpettacoli}
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "AI:MODEL",
+        model: "openai/gpt-4o-mini",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: prompt },
           { role: "user", content: message }
         ]
       })
     });
 
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("ERRORE OPENROUTER:", errText);
-      throw new Error("Errore AI");
-    }
-
-    const data = await aiResponse.json();
-
-    let aiText = data?.choices?.[0]?.message?.content || "{}";
-
-    let parsed;
+    let aiText = "{}";
 
     try {
-      parsed = JSON.parse(aiText);
+      if (aiResponse.ok) {
+        const data = await aiResponse.json();
+        aiText = data?.choices?.[0]?.message?.content || "{}";
+      } else {
+        console.error(await aiResponse.text());
+      }
     } catch (e) {
-      console.error("JSON parse error:", aiText);
-      parsed = {
-        intent: "informazione",
-        message: aiText
-      };
+      console.error("AI error:", e);
     }
 
-    const reply = parsed.message || "Errore risposta AI";
+    // ----------------------
+    // 🔐 PARSING SICURO
+    // ----------------------
+    function safeParse(text) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            return JSON.parse(match[0]);
+          } catch {}
+        }
+      }
+      return {};
+    }
+
+    const parsed = safeParse(aiText);
 
     // ----------------------
-    // 📩 TELEGRAM
+    // 💾 UPDATE SESSION
     // ----------------------
-    if (parsed.intent === "prenotazione") {
-      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: process.env.CHAT_ID,
-          text: `
-🎭 NUOVA PRENOTAZIONE
+    if (parsed.nome) session.nome = parsed.nome;
+    if (parsed.spettacolo) session.spettacolo = parsed.spettacolo;
+    if (parsed.data) session.data = parsed.data;
+    if (parsed.posti) session.posti = parsed.posti;
 
-👤 Nome: ${parsed.nome}
-🎟 Spettacolo: ${parsed.spettacolo}
-📅 Data: ${parsed.data}
-🪑 Posti: ${parsed.posti}
-`
-        })
+    // ----------------------
+    // ❓ MISSING LOGIC SOLO SE PRENOTAZIONE
+    // ----------------------
+    const missing = isBookingIntent ? getMissing(session) : null;
+
+    // ----------------------
+    // 💬 RISPOSTA GENERALE (NO LOOP)
+    // ----------------------
+    if (!isBookingIntent) {
+      return res.json({
+        reply:
+          parsed.message ||
+          "Ciao 😊 sono l’assistente del Teatro Tordinona. Come posso aiutarti?"
       });
     }
 
-    return res.status(200).json({ reply });
+    // ----------------------
+    // 🎟 PRENOTAZIONE IN CORSO
+    // ----------------------
+    if (isBookingIntent && missing) {
+      return res.json({
+        reply:
+          parsed.message ||
+          `Perfetto 😊 mi serve ancora: ${missing}`
+      });
+    }
+
+    // ----------------------
+    // ✅ PRENOTAZIONE COMPLETA
+    // ----------------------
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: process.env.CHAT_ID,
+        text: `
+🎭 NUOVA PRENOTAZIONE
+
+👤 Nome: ${session.nome}
+🎟 Spettacolo: ${session.spettacolo}
+📅 Data: ${session.data}
+🪑 Posti: ${session.posti}
+`
+      })
+    });
+
+    sessions[userId] = {
+      nome: "",
+      spettacolo: "",
+      data: "",
+      posti: ""
+    };
+
+    return res.json({
+      reply: "Perfetto 🎭 la tua prenotazione è stata inviata!"
+    });
 
   } catch (error) {
     console.error("ERRORE BACKEND:", error);
 
-    return res.status(500).json({
-      reply: "C'è stato un problema tecnico. Riprova tra poco."
+    return res.status(200).json({
+      reply: "C’è stato un problema tecnico, riprova tra poco."
     });
   }
-}
+};
