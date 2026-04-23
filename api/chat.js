@@ -138,8 +138,8 @@ Formato JSON:
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        response_format: { type: "json_object" }, // 🔥 IMPORTANTISSIMO
+        model: "AI_MODEL",
+       // response_format: { type: "json_object" }, // 🔥 IMPORTANTISSIMO
         messages: [
           { role: "system", content: prompt },
           { role: "user", content: message }
