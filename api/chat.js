@@ -134,10 +134,12 @@ Formato JSON:
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         model: "AI_MODEL",
+        response_format: { type: "json_object" }, // 🔥 IMPORTANTISSIMO
         messages: [
           { role: "system", content: prompt },
           { role: "user", content: message }
@@ -183,7 +185,11 @@ Formato JSON:
     // ----------------------
     if (isBooking && missing) {
       return res.json({
-        reply: parsed.message || `Perfetto 😊 mi serve ancora: ${missing}`
+        const finalMessage =
+        parsed.message ||
+        (typeof aiText === "string" && aiText.length < 500 ? aiText : null) ||
+        "Ciao 😊 benvenuto al Teatro Tordinona. Come posso aiutarti?";
+        return res.json({ reply: finalMessage });
       });
     }
 
