@@ -104,7 +104,7 @@ Date: ${s.dateRaw.join(", ") || "non specificate"}
     // 🧠 PROMPT STRUTTURATO
     // ----------------------
     const systemPrompt = `
-Sei l'assistente del Teatro Tor di Nona.
+Sei l'assistente del Teatro Tordinona.
 
 OBIETTIVO:
 Il tuo compito è accogliere i visitatori con calore e professionalità, fornire informazioni sugli spettacoli e accompagnarli nella prenotazione in modo naturale.
