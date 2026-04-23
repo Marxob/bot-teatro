@@ -144,8 +144,19 @@ Rispondi SEMPRE in JSON:
     })
   });
 
-  const data = await aiResponse.json();
-  let aiText = data?.choices?.[0]?.message?.content || "{}";
+let aiText = "{}";
+
+try {
+  if (!aiResponse.ok) {
+    const errText = await aiResponse.text();
+    console.error("ERRORE OPENROUTER:", errText);
+  } else {
+    const data = await aiResponse.json();
+    aiText = data?.choices?.[0]?.message?.content || "{}";
+  }
+} catch (e) {
+  console.error("Errore parsing AI:", e);
+}
 
   function safeParse(text) {
     try {
