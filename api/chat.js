@@ -127,7 +127,7 @@ Rispondi SOLO con JSON:
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
+        model: "openai/gpt-oss-120b:free",
         messages: [
           { role: "system", content: extractionPrompt },
           { role: "user", content: message }
