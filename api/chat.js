@@ -1,5 +1,5 @@
 // ----------------------
-// 📅 ESTRAZIONE SPETTACOLI
+// 📅 SPETTACOLI
 // ----------------------
 async function getSpettacoli() {
   try {
@@ -11,27 +11,19 @@ async function getSpettacoli() {
     }
 
     return (data.feed.entry || [])
-      .map(post => {
-        const titolo = post.title.$t.trim();
-        const contenuto = stripHtml(post.content?.$t || "");
-        const link = (post.link || []).find(l => l.rel === "alternate")?.href || "";
-
-        return {
-          titolo,
-          descrizione: contenuto.slice(0, 120),
-          link
-        };
-      })
+      .map(post => ({
+        titolo: post.title.$t.trim(),
+        descrizione: stripHtml(post.content?.$t || "").slice(0, 100)
+      }))
       .slice(0, 4);
 
-  } catch (err) {
-    console.error("Errore feed:", err);
+  } catch {
     return [];
   }
 }
 
 // ----------------------
-// 🧠 SESSIONI (IN MEMORY)
+// 🧠 SESSIONI
 // ----------------------
 const sessions = {};
 
@@ -48,9 +40,9 @@ function getSession(userId) {
 }
 
 // ----------------------
-// 🔍 CAMPI MANCANTI
+// ❓ CAMPI MANCANTI
 // ----------------------
-function getMissingField(s) {
+function getMissing(s) {
   if (!s.spettacolo) return "spettacolo";
   if (!s.nome) return "nome";
   if (!s.posti) return "posti";
@@ -64,128 +56,117 @@ function getMissingField(s) {
 export default async function handler(req, res) {
 
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+  if (req.method !== "POST") {
+    return res.status(405).send("Method not allowed");
   }
 
-  try {
-    if (req.method !== "POST") {
-      return res.status(405).send("Method not allowed");
-    }
+  const { message, userId = "default" } = req.body;
+  const session = getSession(userId);
 
-    const { message, userId = "default" } = req.body;
+  // ----------------------
+  // 🎭 SPETTACOLI
+  // ----------------------
+  const spettacoli = await getSpettacoli();
+  const lista = spettacoli.map(s => s.titolo).join(", ");
 
-    if (!message) {
-      return res.status(400).json({ reply: "Messaggio vuoto." });
-    }
+  // ----------------------
+  // 🧠 PROMPT INTELLIGENTE
+  // ----------------------
+  const prompt = `
+Sei l'assistente del Teatro Tordinona.
 
-    const session = getSession(userId);
+Tono: accogliente, elegante, naturale.
 
-    // ----------------------
-    // 🎭 LISTA SPETTACOLI
-    // ----------------------
-    const spettacoli = await getSpettacoli();
+Messaggio utente: "${message}"
 
-    const listaSpettacoli = spettacoli.map(s =>
-      `- ${s.titolo}`
-    ).join("\n");
+Dati già raccolti:
+- nome: ${session.nome}
+- spettacolo: ${session.spettacolo}
+- data: ${session.data}
+- posti: ${session.posti}
 
-    // ----------------------
-    // 🧠 PROMPT (SOLO ESTRAZIONE)
-    // ----------------------
-    const extractionPrompt = `
-Estrai queste informazioni dal messaggio utente:
+Spettacoli disponibili: ${lista}
 
-- nome
-- spettacolo
-- data
-- posti
+OBIETTIVO:
+1. Se l'utente vuole informazioni → rispondi normalmente
+2. Se vuole prenotare → continua la conversazione in modo naturale
+3. NON fare interrogatori rigidi
 
-Spettacoli disponibili:
-${listaSpettacoli}
+IMPORTANTE:
+- Integra eventuali dati trovati nel messaggio
+- Se manca qualcosa, chiedilo in modo naturale (non elenco)
+- Se tutto è completo → conferma prenotazione
 
-Rispondi SOLO con JSON:
+Rispondi SEMPRE in JSON:
 
 {
+  "message": "",
   "nome": "",
   "spettacolo": "",
   "data": "",
-  "posti": ""
+  "posti": "",
+  "complete": true/false
 }
 `;
 
-    // ----------------------
-    // 🤖 CHIAMATA AI
-    // ----------------------
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-oss-120b:free",
-        messages: [
-          { role: "system", content: extractionPrompt },
-          { role: "user", content: message }
-        ]
-      })
-    });
+  // ----------------------
+  // 🤖 AI
+  // ----------------------
+  const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-4o-mini",
+      messages: [
+        { role: "system", content: prompt }
+      ]
+    })
+  });
 
-    const data = await aiResponse.json();
-    let aiText = data?.choices?.[0]?.message?.content || "{}";
+  const data = await aiResponse.json();
+  let aiText = data?.choices?.[0]?.message?.content || "{}";
 
-    // ----------------------
-    // 🔐 PARSING SICURO
-    // ----------------------
-    function safeParse(text) {
-      try {
-        return JSON.parse(text);
-      } catch {
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-          try {
-            return JSON.parse(match[0]);
-          } catch {}
-        }
-      }
+  function safeParse(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
       return {};
     }
+  }
 
-    const parsed = safeParse(aiText);
+  const parsed = safeParse(aiText);
 
-    // ----------------------
-    // 💾 AGGIORNA SESSIONE
-    // ----------------------
-    session.nome = parsed.nome || session.nome;
-    session.spettacolo = parsed.spettacolo || session.spettacolo;
-    session.data = parsed.data || session.data;
-    session.posti = parsed.posti || session.posti;
+  // ----------------------
+  // 💾 AGGIORNA SESSIONE
+  // ----------------------
+  session.nome = parsed.nome || session.nome;
+  session.spettacolo = parsed.spettacolo || session.spettacolo;
+  session.data = parsed.data || session.data;
+  session.posti = parsed.posti || session.posti;
 
-    // ----------------------
-    // ❓ DATI MANCANTI
-    // ----------------------
-    const missing = getMissingField(session);
+  const missing = getMissing(session);
 
-    if (missing) {
-      const domande = {
-        spettacolo: "Quale spettacolo vuoi prenotare?",
-        nome: "A nome di chi devo inserire la prenotazione?",
-        posti: "Quanti posti vuoi prenotare?",
-        data: "Per quale data?"
-      };
+  // ----------------------
+  // 🧠 BLOCCO ANTI-LOOP
+  // ----------------------
+  if (!parsed.complete && missing) {
+    // lascia parlare l'AI ma evita loop forzando coerenza
+    return res.json({
+      reply: parsed.message || "Ti aiuto volentieri con la prenotazione 😊"
+    });
+  }
 
-      return res.status(200).json({
-        reply: domande[missing]
-      });
-    }
+  // ----------------------
+  // ✅ PRENOTAZIONE COMPLETA
+  // ----------------------
+  if (!missing) {
 
-    // ----------------------
-    // 📩 INVIO TELEGRAM
-    // ----------------------
     await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -194,31 +175,25 @@ Rispondi SOLO con JSON:
         text: `
 🎭 NUOVA PRENOTAZIONE
 
-👤 Nome: ${session.nome}
-🎟 Spettacolo: ${session.spettacolo}
-📅 Data: ${session.data}
-🪑 Posti: ${session.posti}
+👤 ${session.nome}
+🎟 ${session.spettacolo}
+📅 ${session.data}
+🪑 ${session.posti}
 `
       })
     });
 
-    // reset sessione dopo invio
-    sessions[userId] = {
-      nome: "",
-      spettacolo: "",
-      data: "",
-      posti: ""
-    };
+    sessions[userId] = {};
 
-    return res.status(200).json({
-      reply: "Perfetto! La tua prenotazione è stata inviata 🎭"
-    });
-
-  } catch (error) {
-    console.error("ERRORE BACKEND:", error);
-
-    return res.status(500).json({
-      reply: "C'è stato un problema tecnico. Riprova tra poco."
+    return res.json({
+      reply: "Perfetto, ho inviato la tua richiesta di prenotazione 🎭 Ti aspettiamo a teatro!"
     });
   }
+
+  // ----------------------
+  // 💬 RISPOSTA NORMALE
+  // ----------------------
+  return res.json({
+    reply: parsed.message || "Sono qui per aiutarti 😊"
+  });
 }
