@@ -25,7 +25,20 @@ async function getSpettacoli() {
 // ----------------------
 // 🧠 SESSIONI
 // ----------------------
-const sessions = {};
+const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    model: "openai/gpt-4o-mini",
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: message }
+    ]
+  })
+});
 
 function getSession(userId) {
   if (!sessions[userId]) {
@@ -138,9 +151,11 @@ Rispondi SEMPRE in JSON:
     },
     body: JSON.stringify({
       model: "openai/gpt-oss-120b:free",
-      messages: [
-        { role: "system", content: prompt }
-      ]
+       messages: [
+  { role: "system", content: prompt },
+  { role: "user", content: message }
+]
+      
     })
   });
 
@@ -183,12 +198,11 @@ try {
   // ----------------------
   // 🧠 BLOCCO ANTI-LOOP
   // ----------------------
-  if (!parsed.complete && missing) {
-    // lascia parlare l'AI ma evita loop forzando coerenza
-    return res.json({
-      reply: parsed.message || "Ti aiuto volentieri con la prenotazione 😊"
-    });
-  }
+ if (missing) {
+  return res.json({
+    reply: parsed.message || `Mi serve ancora: ${missing}`
+  });
+}
 
   // ----------------------
   // ✅ PRENOTAZIONE COMPLETA
