@@ -271,6 +271,31 @@ ISTRUZIONI:
       geminiError = e.message;
     }
 
+    // Fallback to OpenRouter if Gemini fails
+    if (!aiText && process.env.OPENROUTER_API_KEY) {
+      try {
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            "HTTP-Referer": "https://tordinonateatro.it",
+            "X-Title": "Teatro Tordinona Bot"
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.0-flash-exp-1219:free",
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+
+        const orData = await orResponse.json();
+        aiText = orData?.choices?.[0]?.message?.content || "";
+        console.log("Used OpenRouter fallback");
+      } catch (orErr) {
+        console.error("OpenRouter error:", orErr.message);
+      }
+    }
+
     if (!aiText) {
       console.log("Fallback triggered - spettacoli:", spettacoli.length, "geminiError:", geminiError);
       const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭 Sono il tuo accompagnatore per la stagione teatrale.\n\n" : "";
