@@ -10,12 +10,69 @@ async function getSpettacoli() {
       return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     }
 
-    return (data.feed.entry || []).map(post => ({
-      titolo: post.title.$t,
-      descrizione: stripHtml(post.content?.$t || "").slice(0, 120)
-    })).slice(0, 6);
+    const mesi = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
 
-  } catch {
+    function parseDateString(str) {
+      const m = str.toLowerCase().match(/(\d{1,2})[\/\-\s]?(\d{1,2})?[\/\-\s]?(\d{2,4})?/);
+      if (m) {
+        const gg = m[1].padStart(2, "0");
+        const mm = m[2] ? m[2].padStart(2, "0") : "01";
+        const aa = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : new Date().getFullYear().toString();
+        return `${aa}-${mm}-${gg}`;
+      }
+      const mese = str.toLowerCase().match(/gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic/);
+      if (mese) {
+        const gg = str.match(/(\d{1,2})/)?.[1] || "01";
+        return `${new Date().getFullYear()}-${mesi[mese[0]]}-${gg.padStart(2, "0")}`;
+      }
+      return "";
+    }
+
+    function extractPeriodo(content) {
+      const patterns = [
+        /dal\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
+        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*[\-\/](\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/,
+        /(\d{1,2}\s+\w+)\s*[\-\/]\s*(\d{1,2}\s+\w+)/i,
+        /fino\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
+        /(\d{1,2})\s*(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i
+      ];
+
+      for (const pattern of patterns) {
+        const match = content.match(pattern);
+        if (match) {
+          if (pattern.toString().includes("dal") && match[2]) {
+            return `${parseDateString(match[1])} / ${parseDateString(match[2])}`;
+          }
+          if (match[2] && match[4]) {
+            return `${match[1]}/${match[2]} - ${match[4]}/${match[5]}`;
+          }
+          if (match[2]) {
+            return `${parseDateString(match[0])} / ${parseDateString(match[2])}`;
+          }
+          if (pattern.toString().includes("fino")) {
+            return `fino al ${parseDateString(match[1])}`;
+          }
+          return parseDateString(match[0]);
+        }
+      }
+
+      const singleDate = content.match(/(\d{1,2})\s+(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i);
+      if (singleDate) return parseDateString(singleDate[0]);
+
+      return "";
+    }
+
+    return (data.feed.entry || []).slice(0, 10).map(post => {
+      const content = stripHtml(post.content?.$t || "");
+      return {
+        titolo: post.title.$t,
+        periodo: extractPeriodo(content),
+        descrizione: content.slice(0, 150)
+      };
+    }).filter(s => s.titolo);
+
+  } catch (e) {
+    console.error("Feed error:", e);
     return [];
   }
 }
@@ -81,8 +138,16 @@ function extractData(message, spettacoli) {
   const nome = nomeMatch ? (nomeMatch[1] || nomeMatch[2] || nomeMatch[3]) : "";
 
   let spettacolo = "";
+  let data = parseDate(message);
+
   for (let s of spettacoli) {
-    if (msg.includes(s.titolo.toLowerCase())) {
+    if (s.titolo && msg.includes(s.titolo.toLowerCase())) {
+      spettacolo = s.titolo;
+      if (!data && s.periodo) data = s.periodo;
+      break;
+    }
+    if (!spettacolo && s.periodo && msg.includes(s.periodo.toLowerCase()) && s.titolo) {
+      data = s.periodo;
       spettacolo = s.titolo;
       break;
     }
@@ -91,7 +156,7 @@ function extractData(message, spettacoli) {
   return {
     posti,
     nome,
-    data: parseDate(message),
+    data,
     spettacolo
   };
 }
@@ -141,7 +206,7 @@ Sei l'assistente del Teatro Tordinona. Il tuo obiettivo è AIUTARE l'utente a pr
 UTENTE: "${message}"
 
 PROGRAMMAZIONE ATTUALE:
-${spettacoli.length > 0 ? spettacoli.map(s => `- ${s.titolo}`).join("\n") : "Nessuno spettacolo in programma"}
+${spettacoli.length > 0 ? spettacoli.map(s => `• ${s.periodo || "date da confermare"} - ${s.titolo}`).join("\n") : "Nessuno spettacolo in programma"}
 
 DATI GIA' RACCOLTI:
 - Nome: ${session.nome || "NON FORNITO"}
@@ -158,10 +223,12 @@ ISTRUZIONI:
    - Cerca i titoli degli spettacoli dalla programmazione
 3. Se hai TUTTI i dati, conferma la prenotazione con un messaggio entusiasta
 4. Se mancano dati, chiedili in modo casuale comeParleresti con un amico
-5. Se l'utente chiede informazioni, descrivi gli spettacoli con entusiasmo
-6. NON usare liste o format rigidi - scrivi in modo fluido e teatrale
-
-Rispondi in 1-2 frasi al massimo.
+5. Se l'utente chiede informazioni, presenta gli spettacoli così:
+   "Ecco gli spettacoli in programma:
+   • 15/03 - Titolo Spettacolo
+   • 22/03 - Altro Spettacolo"
+   - Mostra sempre la data prima del titolo
+6. Rispondi in 1-2 frasi al massimo.
 `;
 
     // ----------------------
