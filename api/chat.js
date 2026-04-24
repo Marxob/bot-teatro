@@ -29,6 +29,13 @@ function parseDateString(str) {
   return "";
 }
 
+function getStartDate(periodo) {
+  if (!periodo) return null;
+  const parts = periodo.split(" / ");
+  const d = parts[0] ? new Date(parts[0]) : null;
+  return d && !isNaN(d) ? d : null;
+}
+
 function extractPeriodo(content) {
   if (!content) return "";
   const patterns = [
@@ -57,7 +64,7 @@ async function getSpettacoli() {
     if (!res.ok) throw new Error("Feed not available");
     const data = await res.json();
 
-    const spettacoli = (data.feed.entry || []).slice(0, 10).map(post => {
+    const spettacoli = (data.feed.entry || []).slice(0, 15).map(post => {
       const content = stripHtml(post.content?.$t || "");
       return {
         titolo: post.title.$t,
@@ -66,7 +73,16 @@ async function getSpettacoli() {
       };
     }).filter(s => s.titolo);
 
-    return spettacoli.length > 0 ? spettacoli : SPETTACOLI_FALLBACK;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const filtered = spettacoli.filter(s => {
+      if (!s.periodo) return true;
+      const startDate = getStartDate(s.periodo);
+      return !startDate || startDate >= today;
+    });
+
+    return filtered.length > 0 ? filtered : SPETTACOLI_FALLBACK;
 
   } catch (e) {
     console.error("Feed error:", e);
@@ -197,12 +213,13 @@ module.exports = async function handler(req, res) {
     // ----------------------
     // 🎭 PROMPT TEATRALE
     // ----------------------
+    const isFirstContact = !session.nome && !session.spettacolo && !session.posti && !session.data;
+    const welcome = isFirstContact ? `Benvenuto al Teatro Tordinona! 🎭 Sono il tuo accompagnatore per la stagione teatrale.\n\n` : "";
+
     const prompt = `
 Sei l'assistente del Teatro Tordinona. Il tuo obiettivo è AIUTARE l'utente a prenotare o informarsi sugli spettacoli.
 
-UTENTE: "${message}"
-
-PROGRAMMAZIONE ATTUALE:
+${welcome}PROGRAMMAZIONE ATTUALE (solo spettacoli futuri):
 ${spettacoli.length > 0 ? spettacoli.map(s => `• ${s.periodo || "date da confermare"} - ${s.titolo}`).join("\n") : "Nessuno spettacolo in programma"}
 
 DATI GIA' RACCOLTI:
@@ -256,7 +273,15 @@ ISTRUZIONI:
 
     if (!aiText) {
       console.log("Fallback triggered - spettacoli:", spettacoli.length, "geminiError:", geminiError);
-      aiText = `Ciao! Ecco gli spettacoli in programma:\n${spettacoli.map((s, i) => `${i + 1}. ${s.periodo} - ${s.titolo}`).join("\n")}\n\nScrivimi quale ti interessa!`;
+      const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭 Sono il tuo accompagnatore per la stagione teatrale.\n\n" : "";
+      const lista = spettacoli.map((s, i) => `${i + 1}. ${s.periodo} - ${s.titolo}`).join("\n");
+      aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa o chiama direttamente per prenotare: 02 1234567`;
+    }
+
+    if (geminiError.includes("quota") || geminiError.includes("exceeded")) {
+      return res.json({
+        reply: `⚠️ Temporaneo sovraccarico del servizio AI.\n\n${aiText}\n\nOppure chiamaci per prenotare: 02 1234567`
+      });
     }
 
     // ----------------------
