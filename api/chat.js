@@ -49,7 +49,7 @@ function getMissing(s) {
 }
 
 // ----------------------
-// 🔎 ESTRAZIONE DATI SEMPLICE (ANTI-JSON FAIL)
+// 🔎 ESTRAZIONE DATI
 // ----------------------
 function extractData(message) {
   const msg = message.toLowerCase();
@@ -60,10 +60,7 @@ function extractData(message) {
   let dataMatch = msg.match(/\b(oggi|domani|sabato|domenica|\d{1,2}\s\w+)\b/i);
   let data = dataMatch ? dataMatch[0] : "";
 
-  return {
-    posti,
-    data
-  };
+  return { posti, data };
 }
 
 // ----------------------
@@ -80,7 +77,6 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-
     if (req.method !== "POST") {
       return res.status(405).json({ reply: "Method not allowed" });
     }
@@ -96,81 +92,85 @@ module.exports = async function handler(req, res) {
     // 🎭 SPETTACOLI
     // ----------------------
     const spettacoli = await getSpettacoli();
-    const lista = spettacoli.map(s => `- ${s.titolo}`).join("\n");
+    const lista = spettacoli.map(s => `- ${s.titolo}: ${s.descrizione}`).join("\n");
 
     // ----------------------
-    // 🧠 INTENT
+    // 🧠 INTENT BASE
     // ----------------------
     const msg = message.toLowerCase();
-
     const isBooking = /prenot|bigliett|posti|voglio|riserv/i.test(msg);
-    const isInfo = /spettacoli|programmazione|cartellone|cosa c/i.test(msg);
 
     // ----------------------
-    // 🔎 ESTRAZIONE BACKEND (ANTI LOOP)
+    // 🔎 ESTRAZIONE DATI BACKEND
     // ----------------------
     const extracted = extractData(message);
-
     if (extracted.posti) session.posti = extracted.posti;
     if (extracted.data) session.data = extracted.data;
 
     // ----------------------
-    // 🤖 AI (SOLO TESTO NATURALE)
+    // 🤖 GEMINI
     // ----------------------
     const prompt = `
 Sei l'assistente del Teatro Tordinona.
 
-Parla in modo naturale, umano, elegante.
+Parla in modo naturale, accogliente ed elegante.
 
-Utente: "${message}"
+Messaggio utente:
+"${message}"
 
 Programmazione:
 ${lista}
 
-Se l’utente chiede info, usa questi dati.
-Se vuole prenotare, guidalo in modo naturale.
+Dati prenotazione raccolti:
+- nome: ${session.nome}
+- spettacolo: ${session.spettacolo}
+- data: ${session.data}
+- posti: ${session.posti}
+
+Regole:
+- Rispondi come una persona reale
+- Se chiede info → usa la programmazione
+- Se vuole prenotare → guida con naturalezza (NO interrogatorio)
+- Se capisci nome o spettacolo → includili nella risposta
 
 NON usare JSON.
-Rispondi come una persona reale.
 `;
 
     let aiText = "";
 
     try {
-      const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "meta-llama/llama-3-8b-instruct:free",
-          messages: [
-            { role: "system", content: prompt },
-            { role: "user", content: message }
-          ]
-        })
-      });
+      const aiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt }
+                ]
+              }
+            ]
+          })
+        }
+      );
 
-   let aiText = "";
+      const data = await aiResponse.json();
 
-try {
-  const raw = await aiResponse.text();
-  console.log("AI RAW:", raw);
+      aiText =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-  const parsed = JSON.parse(raw);
-  aiText = parsed?.choices?.[0]?.message?.content || "";
-
-} catch (e) {
-  console.error("AI ERROR:", e);
-}
+      console.log("GEMINI:", aiText);
 
     } catch (e) {
-      console.error("Errore AI:", e);
+      console.error("Errore Gemini:", e);
     }
 
     // ----------------------
-    // 🧠 PRENOTAZIONE LOGICA
+    // 🎟 PRENOTAZIONE
     // ----------------------
     if (isBooking) {
 
@@ -207,10 +207,12 @@ try {
     }
 
     // ----------------------
-    // 💬 RISPOSTA NATURALE
+    // 💬 RISPOSTA NORMALE
     // ----------------------
     return res.json({
-      reply: aiText || "Ciao 😊 benvenuto al Teatro Tordinona!"
+      reply:
+        aiText ||
+        "Ciao 😊 benvenuto al Teatro Tordinona! Come posso aiutarti?"
     });
 
   } catch (error) {
