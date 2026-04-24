@@ -1,14 +1,88 @@
 // ----------------------
 // 📅 SPETTACOLI
 // ----------------------
+const SPETTACOLI_FALLBACK = [
+  { titolo: "PROGRAMMAZIONE IN AGGIORNAMENTO", periodo: "contattaci per info" }
+];
+
 async function getSpettacoli() {
   try {
     const res = await fetch("https://www.tordinonateatro.it/feeds/posts/default?alt=json");
+    if (!res.ok) throw new Error("Feed not available");
     const data = await res.json();
 
     function stripHtml(html) {
       return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     }
+
+    const mesi = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
+
+    function parseDateString(str) {
+      const m = str.toLowerCase().match(/(\d{1,2})[\/\-\s]?(\d{1,2})?[\/\-\s]?(\d{0,4})?/);
+      if (m) {
+        const gg = m[1].padStart(2, "0");
+        const mm = m[2] ? m[2].padStart(2, "0") : "01";
+        const aa = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : new Date().getFullYear().toString();
+        return `${aa}-${mm}-${gg}`;
+      }
+      const mese = str.toLowerCase().match(/gen|feb|mar|apr|mag|giu|lug|ago|set|oct|nov|dic/);
+      if (mese) {
+        const gg = str.match(/(\d{1,2})/)?.[1] || "01";
+        return `${new Date().getFullYear()}-${mesi[mese[0]]}-${gg.padStart(2, "0")}`;
+      }
+      return "";
+    }
+
+    function extractPeriodo(content) {
+      const patterns = [
+        /dal\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
+        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*[\-\/](\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/,
+        /(\d{1,2}\s+\w+)\s*[\-\/]\s*(\d{1,2}\s+\w+)/i,
+        /fino\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
+        /(\d{1,2})\s*(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i
+      ];
+
+      for (const pattern of patterns) {
+        const match = content.match(pattern);
+        if (match) {
+          if (pattern.toString().includes("dal") && match[2]) {
+            return `${parseDateString(match[1])} / ${parseDateString(match[2])}`;
+          }
+          if (match[2] && match[4]) {
+            return `${match[1]}/${match[2]} - ${match[4]}/${match[5]}`;
+          }
+          if (match[2]) {
+            return `${parseDateString(match[0])} / ${parseDateString(match[2])}`;
+          }
+          if (pattern.toString().includes("fino")) {
+            return `fino al ${parseDateString(match[1])}`;
+          }
+          return parseDateString(match[0]);
+        }
+      }
+
+      const singleDate = content.match(/(\d{1,2})\s+(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i);
+      if (singleDate) return parseDateString(singleDate[0]);
+
+      return "";
+    }
+
+    const spettacoli = (data.feed.entry || []).slice(0, 10).map(post => {
+      const content = stripHtml(post.content?.$t || "");
+      return {
+        titolo: post.title.$t,
+        periodo: extractPeriodo(content),
+        descrizione: content.slice(0, 150)
+      };
+    }).filter(s => s.titolo);
+
+    return spettacoli.length > 0 ? spettacoli : SPETTACOLI_FALLBACK;
+
+  } catch (e) {
+    console.error("Feed error:", e);
+    return SPETTACOLI_FALLBACK;
+  }
+}
 
     const mesi = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
 
@@ -235,10 +309,16 @@ ISTRUZIONI:
     // 🤖 GEMINI 2.5 FLASH
     // ----------------------
     let aiText = "";
+    let geminiError = "";
 
     try {
+      if (!process.env.GEMINI_API_KEY) {
+        geminiError = "API key mancante";
+        throw new Error("GEMINI_API_KEY non configurata");
+      }
+
       const aiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -256,11 +336,27 @@ ISTRUZIONI:
 
       const data = await aiResponse.json();
 
-      aiText =
-        data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      if (data.error) {
+        geminiError = data.error.message;
+        throw new Error(data.error.message);
+      }
+
+      aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     } catch (e) {
-      console.error("Gemini error:", e);
+      console.error("Gemini error:", e.message);
+      geminiError = e.message;
+    }
+
+    if (geminiError) {
+      return res.json({
+        reply: `⚠️ Servizio temporaneamente non disponibile. Riprova più tardi.`
+      });
+    }
+
+    if (!aiText) {
+      console.log("AI empty - spettacoli:", spettacoli.length, "geminiError:", geminiError);
+      aiText = `Ciao! Ecco gli spettacoli in programma:\n${spettacoli.map((s, i) => `${i + 1}. ${s.periodo} - ${s.titolo}`).join("\n")}\n\nScrivimi quale ti interessa!`;
     }
 
     // ----------------------
