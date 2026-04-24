@@ -15,7 +15,8 @@ async function getSpettacoli() {
       descrizione: stripHtml(post.content?.$t || "").slice(0, 120)
     })).slice(0, 6);
 
-  } catch {
+  } catch (e) {
+    console.error("Errore feed:", e);
     return [];
   }
 }
@@ -31,63 +32,10 @@ function getSession(userId) {
       nome: "",
       spettacolo: "",
       data: "",
-      posti: "",
-      history: []
+      posti: ""
     };
   }
   return sessions[userId];
-}
-
-// ----------------------
-// 📅 PARSING DATE SMART
-// ----------------------
-function parseDate(text) {
-  const today = new Date();
-  const msg = text.toLowerCase();
-
-  if (msg.includes("oggi")) return today.toISOString().split("T")[0];
-
-  if (msg.includes("domani")) {
-    const d = new Date();
-    d.setDate(today.getDate() + 1);
-    return d.toISOString().split("T")[0];
-  }
-
-  const giorni = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
-  for (let i = 0; i < giorni.length; i++) {
-    if (msg.includes(giorni[i])) {
-      const d = new Date();
-      const diff = (i - today.getDay() + 7) % 7 || 7;
-      d.setDate(today.getDate() + diff);
-      return d.toISOString().split("T")[0];
-    }
-  }
-
-  return "";
-}
-
-// ----------------------
-// 🔎 ESTRAZIONE DATI
-// ----------------------
-function extractData(message, spettacoli) {
-  const msg = message.toLowerCase();
-
-  const postiMatch = msg.match(/\b(\d+)\b/);
-  const posti = postiMatch ? postiMatch[1] : "";
-
-  let spettacolo = "";
-  for (let s of spettacoli) {
-    if (msg.includes(s.titolo.toLowerCase())) {
-      spettacolo = s.titolo;
-      break;
-    }
-  }
-
-  return {
-    posti,
-    data: parseDate(message),
-    spettacolo
-  };
 }
 
 // ----------------------
@@ -95,6 +43,7 @@ function extractData(message, spettacoli) {
 // ----------------------
 module.exports = async function handler(req, res) {
 
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -104,60 +53,66 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    if (req.method !== "POST") {
+      return res.status(405).json({ reply: "Method not allowed" });
+    }
+
     const { message, userId = "default" } = req.body || {};
-    if (!message) return res.json({ reply: "Scrivimi pure 😊" });
+    if (!message) {
+      return res.status(400).json({ reply: "Messaggio vuoto" });
+    }
 
     const session = getSession(userId);
 
+    // ----------------------
+    // 🎭 SPETTACOLI
+    // ----------------------
     const spettacoli = await getSpettacoli();
+    const listaTitoli = spettacoli.map(s => s.titolo).join(", ");
 
     // ----------------------
-    // 🧠 ESTRAZIONE BACKEND
-    // ----------------------
-    const extracted = extractData(message, spettacoli);
-
-    if (extracted.posti) session.posti = extracted.posti;
-    if (extracted.data) session.data = extracted.data;
-    if (extracted.spettacolo) session.spettacolo = extracted.spettacolo;
-
-    // ----------------------
-    // 🧠 INTENT
-    // ----------------------
-    const isBooking = /prenot|bigliett|posti|voglio|riserv/i.test(message);
-
-    // ----------------------
-    // 🎭 PROMPT TEATRALE
+    // 🧠 PROMPT STRUTTURATO
     // ----------------------
     const prompt = `
 Sei l'assistente del Teatro Tordinona.
 
-Parla come una persona reale, con eleganza e un tocco teatrale.
+Capisci il messaggio e rispondi SEMPRE in JSON valido.
 
-Utente: "${message}"
+Formato:
 
-Programmazione:
-${spettacoli.map(s => `- ${s.titolo}`).join("\n")}
-
-Dati raccolti:
-- nome: ${session.nome}
-- spettacolo: ${session.spettacolo}
-- data: ${session.data}
-- posti: ${session.posti}
+{
+  "message": "risposta naturale, elegante e teatrale",
+  "intent": "info | prenotazione | altro",
+  "nome": "",
+  "spettacolo": "",
+  "data": "",
+  "posti": ""
+}
 
 Regole:
-- NON essere robotico
-- NON fare elenchi di domande
-- accompagna l’utente naturalmente
-- se prenotazione → guida con eleganza
-- se informazione → racconta gli spettacoli
+- Il campo message deve essere naturale e umano
+- NON inventare dati
+- Se un dato non è presente → stringa vuota
+- Se l’utente vuole prenotare → intent = prenotazione
+- Se chiede info → intent = info
 
-Rispondi in modo naturale.
+Messaggio utente:
+"${message}"
+
+Spettacoli disponibili:
+${listaTitoli}
+
+Dati già raccolti:
+nome: ${session.nome}
+spettacolo: ${session.spettacolo}
+data: ${session.data}
+posti: ${session.posti}
 `;
 
     // ----------------------
     // 🤖 GEMINI 2.5 FLASH
     // ----------------------
-    let aiText = "";
+    let parsed = {};
 
     try {
       const aiResponse = await fetch(
@@ -168,41 +123,54 @@ Rispondi in modo naturale.
           body: JSON.stringify({
             contents: [
               {
-                parts: [
-                  { text: prompt }
-                ]
+                parts: [{ text: prompt }]
               }
-            ]
+            ],
+            generationConfig: {
+              response_mime_type: "application/json"
+            }
           })
         }
       );
 
       const data = await aiResponse.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
-      aiText =
-        data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      console.log("GEMINI RAW:", text);
+
+      parsed = JSON.parse(text);
 
     } catch (e) {
-      console.error("Gemini error:", e);
+      console.error("Errore Gemini:", e);
+      parsed = {};
     }
+
+    // ----------------------
+    // 💾 AGGIORNA SESSIONE
+    // ----------------------
+    if (parsed.nome) session.nome = parsed.nome;
+    if (parsed.spettacolo) session.spettacolo = parsed.spettacolo;
+    if (parsed.data) session.data = parsed.data;
+    if (parsed.posti) session.posti = parsed.posti;
 
     // ----------------------
     // 🎟 PRENOTAZIONE
     // ----------------------
-    if (isBooking) {
+    if (parsed.intent === "prenotazione") {
+
       const missing =
-        !session.spettacolo ? "spettacolo" :
-        !session.nome ? "nome" :
-        !session.posti ? "posti" :
-        !session.data ? "data" : null;
+        !session.spettacolo ? "lo spettacolo" :
+        !session.nome ? "il nome" :
+        !session.posti ? "il numero di posti" :
+        !session.data ? "la data" : null;
 
       if (missing) {
         return res.json({
-          reply: aiText || `Mi racconti meglio? Mi manca ancora ${missing} 😊`
+          reply: parsed.message || `Mi manca ancora ${missing} 😊`
         });
       }
 
-      // invio telegram
+      // INVIO TELEGRAM
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -219,24 +187,28 @@ Rispondi in modo naturale.
         })
       });
 
+      // reset sessione
       sessions[userId] = {};
 
       return res.json({
-        reply: "È tutto pronto 🎭 Ho inviato la tua richiesta. Ti aspettiamo a teatro."
+        reply: "Perfetto 🎭 Ho inviato la tua richiesta di prenotazione. Ti aspettiamo a teatro!"
       });
     }
 
     // ----------------------
-    // 💬 RISPOSTA NATURALE
+    // 💬 RISPOSTA NORMALE
     // ----------------------
     return res.json({
-      reply: aiText || "Benvenuto al Teatro Tordinona 🎭 Come posso accompagnarti?"
+      reply:
+        parsed.message ||
+        "Benvenuto al Teatro Tordinona 🎭 Come posso aiutarti?"
     });
 
   } catch (error) {
-    console.error(error);
-    return res.json({
-      reply: "C’è stato un piccolo imprevisto tecnico."
+    console.error("ERRORE BACKEND:", error);
+
+    return res.status(500).json({
+      reply: "C'è stato un problema tecnico."
     });
   }
 };
