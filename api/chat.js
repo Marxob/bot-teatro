@@ -15,8 +15,7 @@ async function getSpettacoli() {
       descrizione: stripHtml(post.content?.$t || "").slice(0, 120)
     })).slice(0, 5);
 
-  } catch (e) {
-    console.error("Errore feed:", e);
+  } catch {
     return [];
   }
 }
@@ -40,6 +39,23 @@ function getSession(userId) {
 }
 
 // ----------------------
+// 🔎 PARSE SICURO JSON
+// ----------------------
+function safeParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {}
+    }
+    return null;
+  }
+}
+
+// ----------------------
 // 🤖 HANDLER
 // ----------------------
 module.exports = async function handler(req, res) {
@@ -48,25 +64,13 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    if (req.method !== "POST") {
-      return res.status(405).json({ reply: "Method not allowed" });
-    }
-
     const { message, userId = "default" } = req.body || {};
-    if (!message) {
-      return res.json({ reply: "Scrivimi pure 😊" });
-    }
+    if (!message) return res.json({ reply: "Scrivimi pure 😊" });
 
     const session = getSession(userId);
-
-    // ----------------------
-    // 🎭 SPETTACOLI
-    // ----------------------
     const spettacoli = await getSpettacoli();
     const lista = spettacoli.map(s => s.titolo).join(", ");
 
@@ -74,41 +78,26 @@ module.exports = async function handler(req, res) {
     // 🧠 PROMPT
     // ----------------------
     const prompt = `
-Sei l'assistente del Teatro Tordinona.
-
-Rispondi SEMPRE in JSON valido:
+Rispondi in JSON:
 
 {
-  "message": "risposta naturale",
-  "intent": "info | prenotazione | altro",
-  "nome": "",
-  "spettacolo": "",
-  "data": "",
-  "posti": ""
+ "message": "...",
+ "intent": "info | prenotazione | altro",
+ "nome": "",
+ "spettacolo": "",
+ "data": "",
+ "posti": ""
 }
 
-Regole:
-- NON inventare dati
-- Se non presenti → stringa vuota
-- Il campo message deve essere umano e naturale
-
-Messaggio:
-"${message}"
-
-Spettacoli:
-${lista}
-
-Dati raccolti:
-nome: ${session.nome}
-spettacolo: ${session.spettacolo}
-data: ${session.data}
-posti: ${session.posti}
+Messaggio: "${message}"
+Spettacoli: ${lista}
 `;
 
     // ----------------------
     // 🤖 GEMINI
     // ----------------------
-    let parsed = {};
+    let aiRaw = "";
+    let parsed = null;
 
     try {
       const aiResponse = await fetch(
@@ -117,28 +106,31 @@ posti: ${session.posti}
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              response_mime_type: "application/json"
-            }
+            contents: [{ parts: [{ text: prompt }] }]
           })
         }
       );
 
       const data = await aiResponse.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      aiRaw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-      console.log("AI:", text);
-
-      parsed = JSON.parse(text);
+      parsed = safeParse(aiRaw);
 
     } catch (e) {
-      console.error("Errore AI:", e);
-      parsed = {};
+      console.error("AI error:", e);
     }
 
     // ----------------------
-    // 💾 AGGIORNA SESSIONE
+    // 💬 FALLBACK INTELLIGENTE
+    // ----------------------
+    if (!parsed) {
+      return res.json({
+        reply: aiRaw || "Ciao 😊 benvenuto al Teatro Tordinona! Come posso aiutarti?"
+      });
+    }
+
+    // ----------------------
+    // 💾 SESSIONE
     // ----------------------
     if (parsed.nome) session.nome = parsed.nome;
     if (parsed.spettacolo) session.spettacolo = parsed.spettacolo;
@@ -148,28 +140,27 @@ posti: ${session.posti}
     // ----------------------
     // 🎯 ATTIVA PRENOTAZIONE
     // ----------------------
-    if (parsed.intent === "prenotazione" && session.mode === "idle") {
+    if (parsed.intent === "prenotazione") {
       session.mode = "booking";
     }
 
     // ----------------------
-    // 🎟 FLUSSO PRENOTAZIONE
+    // 🎟 PRENOTAZIONE
     // ----------------------
     if (session.mode === "booking") {
 
       const missing =
         !session.spettacolo ? "lo spettacolo" :
         !session.nome ? "il nome" :
-        !session.posti ? "il numero di posti" :
+        !session.posti ? "i posti" :
         !session.data ? "la data" : null;
 
       if (missing) {
         return res.json({
-          reply: parsed.message || `Perfetto 😊 mi serve ancora ${missing}`
+          reply: parsed.message || `Mi serve ancora ${missing} 😊`
         });
       }
 
-      // invio telegram
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -186,17 +177,10 @@ posti: ${session.posti}
         })
       });
 
-      // reset
-      sessions[userId] = {
-        nome: "",
-        spettacolo: "",
-        data: "",
-        posti: "",
-        mode: "idle"
-      };
+      sessions[userId] = { mode: "idle" };
 
       return res.json({
-        reply: "Perfetto 🎭 Prenotazione inviata! Ti aspettiamo a teatro."
+        reply: "Perfetto 🎭 prenotazione inviata!"
       });
     }
 
@@ -204,13 +188,11 @@ posti: ${session.posti}
     // 💬 RISPOSTA NORMALE
     // ----------------------
     return res.json({
-      reply: parsed.message || "Come posso aiutarti? 😊"
+      reply: parsed.message || aiRaw || "Dimmi pure 😊"
     });
 
-  } catch (err) {
-    console.error("Errore:", err);
-    return res.json({
-      reply: "C'è stato un problema tecnico."
-    });
+  } catch (e) {
+    console.error(e);
+    return res.json({ reply: "Errore tecnico." });
   }
 };
