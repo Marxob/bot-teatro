@@ -13,7 +13,7 @@ async function getSpettacoli() {
     return (data.feed.entry || []).map(post => ({
       titolo: post.title.$t,
       descrizione: stripHtml(post.content?.$t || "").slice(0, 120)
-    })).slice(0, 6);
+    })).slice(0, 5);
 
   } catch (e) {
     console.error("Errore feed:", e);
@@ -32,7 +32,8 @@ function getSession(userId) {
       nome: "",
       spettacolo: "",
       data: "",
-      posti: ""
+      posti: "",
+      mode: "idle"
     };
   }
   return sessions[userId];
@@ -43,7 +44,6 @@ function getSession(userId) {
 // ----------------------
 module.exports = async function handler(req, res) {
 
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -59,7 +59,7 @@ module.exports = async function handler(req, res) {
 
     const { message, userId = "default" } = req.body || {};
     if (!message) {
-      return res.status(400).json({ reply: "Messaggio vuoto" });
+      return res.json({ reply: "Scrivimi pure 😊" });
     }
 
     const session = getSession(userId);
@@ -68,20 +68,18 @@ module.exports = async function handler(req, res) {
     // 🎭 SPETTACOLI
     // ----------------------
     const spettacoli = await getSpettacoli();
-    const listaTitoli = spettacoli.map(s => s.titolo).join(", ");
+    const lista = spettacoli.map(s => s.titolo).join(", ");
 
     // ----------------------
-    // 🧠 PROMPT STRUTTURATO
+    // 🧠 PROMPT
     // ----------------------
     const prompt = `
 Sei l'assistente del Teatro Tordinona.
 
-Capisci il messaggio e rispondi SEMPRE in JSON valido.
-
-Formato:
+Rispondi SEMPRE in JSON valido:
 
 {
-  "message": "risposta naturale, elegante e teatrale",
+  "message": "risposta naturale",
   "intent": "info | prenotazione | altro",
   "nome": "",
   "spettacolo": "",
@@ -90,19 +88,17 @@ Formato:
 }
 
 Regole:
-- Il campo message deve essere naturale e umano
 - NON inventare dati
-- Se un dato non è presente → stringa vuota
-- Se l’utente vuole prenotare → intent = prenotazione
-- Se chiede info → intent = info
+- Se non presenti → stringa vuota
+- Il campo message deve essere umano e naturale
 
-Messaggio utente:
+Messaggio:
 "${message}"
 
-Spettacoli disponibili:
-${listaTitoli}
+Spettacoli:
+${lista}
 
-Dati già raccolti:
+Dati raccolti:
 nome: ${session.nome}
 spettacolo: ${session.spettacolo}
 data: ${session.data}
@@ -110,7 +106,7 @@ posti: ${session.posti}
 `;
 
     // ----------------------
-    // 🤖 GEMINI 2.5 FLASH
+    // 🤖 GEMINI
     // ----------------------
     let parsed = {};
 
@@ -121,11 +117,7 @@ posti: ${session.posti}
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: prompt }]
-              }
-            ],
+            contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               response_mime_type: "application/json"
             }
@@ -136,12 +128,12 @@ posti: ${session.posti}
       const data = await aiResponse.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
-      console.log("GEMINI RAW:", text);
+      console.log("AI:", text);
 
       parsed = JSON.parse(text);
 
     } catch (e) {
-      console.error("Errore Gemini:", e);
+      console.error("Errore AI:", e);
       parsed = {};
     }
 
@@ -154,9 +146,16 @@ posti: ${session.posti}
     if (parsed.posti) session.posti = parsed.posti;
 
     // ----------------------
-    // 🎟 PRENOTAZIONE
+    // 🎯 ATTIVA PRENOTAZIONE
     // ----------------------
-    if (parsed.intent === "prenotazione") {
+    if (parsed.intent === "prenotazione" && session.mode === "idle") {
+      session.mode = "booking";
+    }
+
+    // ----------------------
+    // 🎟 FLUSSO PRENOTAZIONE
+    // ----------------------
+    if (session.mode === "booking") {
 
       const missing =
         !session.spettacolo ? "lo spettacolo" :
@@ -166,11 +165,11 @@ posti: ${session.posti}
 
       if (missing) {
         return res.json({
-          reply: parsed.message || `Mi manca ancora ${missing} 😊`
+          reply: parsed.message || `Perfetto 😊 mi serve ancora ${missing}`
         });
       }
 
-      // INVIO TELEGRAM
+      // invio telegram
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -187,11 +186,17 @@ posti: ${session.posti}
         })
       });
 
-      // reset sessione
-      sessions[userId] = {};
+      // reset
+      sessions[userId] = {
+        nome: "",
+        spettacolo: "",
+        data: "",
+        posti: "",
+        mode: "idle"
+      };
 
       return res.json({
-        reply: "Perfetto 🎭 Ho inviato la tua richiesta di prenotazione. Ti aspettiamo a teatro!"
+        reply: "Perfetto 🎭 Prenotazione inviata! Ti aspettiamo a teatro."
       });
     }
 
@@ -199,15 +204,12 @@ posti: ${session.posti}
     // 💬 RISPOSTA NORMALE
     // ----------------------
     return res.json({
-      reply:
-        parsed.message ||
-        "Benvenuto al Teatro Tordinona 🎭 Come posso aiutarti?"
+      reply: parsed.message || "Come posso aiutarti? 😊"
     });
 
-  } catch (error) {
-    console.error("ERRORE BACKEND:", error);
-
-    return res.status(500).json({
+  } catch (err) {
+    console.error("Errore:", err);
+    return res.json({
       reply: "C'è stato un problema tecnico."
     });
   }
