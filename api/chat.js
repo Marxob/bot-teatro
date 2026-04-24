@@ -5,67 +5,57 @@ const SPETTACOLI_FALLBACK = [
   { titolo: "PROGRAMMAZIONE IN AGGIORNAMENTO", periodo: "contattaci per info" }
 ];
 
+const mesiMap = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
+
+function stripHtml(html) {
+  if (!html) return "";
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function parseDateString(str) {
+  if (!str) return "";
+  const m = str.toLowerCase().match(/(\d{1,2})[\/\-\s]?(\d{1,2})?[\/\-\s]?(\d{0,4})?/);
+  if (m) {
+    const gg = m[1].padStart(2, "0");
+    const mm = m[2] ? m[2].padStart(2, "0") : "01";
+    const aa = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : new Date().getFullYear().toString();
+    return `${aa}-${mm}-${gg}`;
+  }
+  const mese = str.toLowerCase().match(/gen|feb|mar|apr|mag|giu|lug|ago|set|oct|nov|dic/);
+  if (mese) {
+    const gg = str.match(/(\d{1,2})/)?.[1] || "01";
+    return `${new Date().getFullYear()}-${mesiMap[mese[0]]}-${gg.padStart(2, "0")}`;
+  }
+  return "";
+}
+
+function extractPeriodo(content) {
+  if (!content) return "";
+  const patterns = [
+    /dal\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
+    /fino\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
+    /(\d{1,2})\s*(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i
+  ];
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match) {
+      if (pattern.toString().includes("dal") && match[2]) {
+        return `${parseDateString(match[1])} / ${parseDateString(match[2])}`;
+      }
+      if (pattern.toString().includes("fino")) {
+        return `fino al ${parseDateString(match[1])}`;
+      }
+      return parseDateString(match[0]);
+    }
+  }
+  return "";
+}
+
 async function getSpettacoli() {
   try {
     const res = await fetch("https://www.tordinonateatro.it/feeds/posts/default?alt=json");
     if (!res.ok) throw new Error("Feed not available");
     const data = await res.json();
-
-    function stripHtml(html) {
-      return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-    }
-
-    const mesi = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
-
-    function parseDateString(str) {
-      const m = str.toLowerCase().match(/(\d{1,2})[\/\-\s]?(\d{1,2})?[\/\-\s]?(\d{0,4})?/);
-      if (m) {
-        const gg = m[1].padStart(2, "0");
-        const mm = m[2] ? m[2].padStart(2, "0") : "01";
-        const aa = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : new Date().getFullYear().toString();
-        return `${aa}-${mm}-${gg}`;
-      }
-      const mese = str.toLowerCase().match(/gen|feb|mar|apr|mag|giu|lug|ago|set|oct|nov|dic/);
-      if (mese) {
-        const gg = str.match(/(\d{1,2})/)?.[1] || "01";
-        return `${new Date().getFullYear()}-${mesi[mese[0]]}-${gg.padStart(2, "0")}`;
-      }
-      return "";
-    }
-
-    function extractPeriodo(content) {
-      const patterns = [
-        /dal\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
-        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*[\-\/](\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/,
-        /(\d{1,2}\s+\w+)\s*[\-\/]\s*(\d{1,2}\s+\w+)/i,
-        /fino\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
-        /(\d{1,2})\s*(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i
-      ];
-
-      for (const pattern of patterns) {
-        const match = content.match(pattern);
-        if (match) {
-          if (pattern.toString().includes("dal") && match[2]) {
-            return `${parseDateString(match[1])} / ${parseDateString(match[2])}`;
-          }
-          if (match[2] && match[4]) {
-            return `${match[1]}/${match[2]} - ${match[4]}/${match[5]}`;
-          }
-          if (match[2]) {
-            return `${parseDateString(match[0])} / ${parseDateString(match[2])}`;
-          }
-          if (pattern.toString().includes("fino")) {
-            return `fino al ${parseDateString(match[1])}`;
-          }
-          return parseDateString(match[0]);
-        }
-      }
-
-      const singleDate = content.match(/(\d{1,2})\s+(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i);
-      if (singleDate) return parseDateString(singleDate[0]);
-
-      return "";
-    }
 
     const spettacoli = (data.feed.entry || []).slice(0, 10).map(post => {
       const content = stripHtml(post.content?.$t || "");
@@ -81,73 +71,6 @@ async function getSpettacoli() {
   } catch (e) {
     console.error("Feed error:", e);
     return SPETTACOLI_FALLBACK;
-  }
-}
-
-    const mesi = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
-
-    function parseDateString(str) {
-      const m = str.toLowerCase().match(/(\d{1,2})[\/\-\s]?(\d{1,2})?[\/\-\s]?(\d{2,4})?/);
-      if (m) {
-        const gg = m[1].padStart(2, "0");
-        const mm = m[2] ? m[2].padStart(2, "0") : "01";
-        const aa = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : new Date().getFullYear().toString();
-        return `${aa}-${mm}-${gg}`;
-      }
-      const mese = str.toLowerCase().match(/gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic/);
-      if (mese) {
-        const gg = str.match(/(\d{1,2})/)?.[1] || "01";
-        return `${new Date().getFullYear()}-${mesi[mese[0]]}-${gg.padStart(2, "0")}`;
-      }
-      return "";
-    }
-
-    function extractPeriodo(content) {
-      const patterns = [
-        /dal\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
-        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*[\-\/](\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/,
-        /(\d{1,2}\s+\w+)\s*[\-\/]\s*(\d{1,2}\s+\w+)/i,
-        /fino\s+al\s+(\d{1,2}[\/\-\s]?\w+[\/\-\s]?\d{0,4})/i,
-        /(\d{1,2})\s*(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i
-      ];
-
-      for (const pattern of patterns) {
-        const match = content.match(pattern);
-        if (match) {
-          if (pattern.toString().includes("dal") && match[2]) {
-            return `${parseDateString(match[1])} / ${parseDateString(match[2])}`;
-          }
-          if (match[2] && match[4]) {
-            return `${match[1]}/${match[2]} - ${match[4]}/${match[5]}`;
-          }
-          if (match[2]) {
-            return `${parseDateString(match[0])} / ${parseDateString(match[2])}`;
-          }
-          if (pattern.toString().includes("fino")) {
-            return `fino al ${parseDateString(match[1])}`;
-          }
-          return parseDateString(match[0]);
-        }
-      }
-
-      const singleDate = content.match(/(\d{1,2})\s+(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)/i);
-      if (singleDate) return parseDateString(singleDate[0]);
-
-      return "";
-    }
-
-    return (data.feed.entry || []).slice(0, 10).map(post => {
-      const content = stripHtml(post.content?.$t || "");
-      return {
-        titolo: post.title.$t,
-        periodo: extractPeriodo(content),
-        descrizione: content.slice(0, 150)
-      };
-    }).filter(s => s.titolo);
-
-  } catch (e) {
-    console.error("Feed error:", e);
-    return [];
   }
 }
 
@@ -289,24 +212,16 @@ DATI GIA' RACCOLTI:
 - Posti: ${session.posti || "NON FORNITI"}
 
 ISTRUZIONI:
-1. Se l'utente vuole prenotare, chiedi i dati mancanti in modo naturale e conversazionale
-2. Estrai e usa TUTTE le informazioni utili dal messaggio dell'utente:
-   - Cerca nomi propri (es: "sono Marco", "mi chiamo Anna")
-   - Cerca date (oggi, domani, lunedì, martedì, etc.)
-   - Cerca numeri di posti
-   - Cerca i titoli degli spettacoli dalla programmazione
-3. Se hai TUTTI i dati, conferma la prenotazione con un messaggio entusiasta
-4. Se mancano dati, chiedili in modo casuale comeParleresti con un amico
-5. Se l'utente chiede informazioni, presenta gli spettacoli così:
-   "Ecco gli spettacoli in programma:
-   • 15/03 - Titolo Spettacolo
-   • 22/03 - Altro Spettacolo"
-   - Mostra sempre la data prima del titolo
+1. Se l'utente vuole prenotare, chiedi i dati mancanti in modo naturale
+2. Estrai e usa TUTTE le informazioni utili dal messaggio dell'utente
+3. Se hai TUTTI i dati, conferma la prenotazione
+4. Se mancano dati, chiedili in modo conversazionale
+5. Se l'utente chiede informazioni, presenta gli spettacoli con data prima del titolo
 6. Rispondi in 1-2 frasi al massimo.
 `;
 
     // ----------------------
-    // 🤖 GEMINI 2.5 FLASH
+    // 🤖 GEMINI
     // ----------------------
     let aiText = "";
     let geminiError = "";
@@ -314,48 +229,33 @@ ISTRUZIONI:
     try {
       if (!process.env.GEMINI_API_KEY) {
         geminiError = "API key mancante";
-        throw new Error("GEMINI_API_KEY non configurata");
-      }
+      } else {
+        const aiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            })
+          }
+        );
 
-      const aiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt }
-                ]
-              }
-            ]
-          })
+        const data = await aiResponse.json();
+
+        if (data.error) {
+          geminiError = data.error.message;
+        } else {
+          aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
         }
-      );
-
-      const data = await aiResponse.json();
-
-      if (data.error) {
-        geminiError = data.error.message;
-        throw new Error(data.error.message);
       }
-
-      aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
     } catch (e) {
       console.error("Gemini error:", e.message);
       geminiError = e.message;
     }
 
-    if (geminiError) {
-      return res.json({
-        reply: `⚠️ Servizio temporaneamente non disponibile. Riprova più tardi.`
-      });
-    }
-
     if (!aiText) {
-      console.log("AI empty - spettacoli:", spettacoli.length, "geminiError:", geminiError);
+      console.log("Fallback triggered - spettacoli:", spettacoli.length, "geminiError:", geminiError);
       aiText = `Ciao! Ecco gli spettacoli in programma:\n${spettacoli.map((s, i) => `${i + 1}. ${s.periodo} - ${s.titolo}`).join("\n")}\n\nScrivimi quale ti interessa!`;
     }
 
@@ -379,15 +279,13 @@ ISTRUZIONI:
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: process.env.CHAT_ID,
-              text: `
-🎭 NUOVA PRENOTAZIONE
+              text: `🎭 NUOVA PRENOTAZIONE
 
 👤 Nome: ${session.nome}
 🎟 Spettacolo: ${session.spettacolo}
 📅 Data: ${session.data}
 🪑 Posti: ${session.posti}
-⏰ Prenotato il: ${now}
-`
+⏰ Prenotato il: ${now}`
             })
           });
 
@@ -401,21 +299,11 @@ ISTRUZIONI:
         if (/^(no|cancella|annulla|correggo|cambia|modifica|corretto)$/i.test(msg)) {
           session.waitingConfirmation = false;
           return res.json({
-            reply: `Nessun problema! Quale dato vuoi correggere?\n📋 Riepilogo attuale:\n- Nome: ${session.nome}\n- Spettacolo: ${session.spettacolo}\n- Data: ${session.data}\n- Posti: ${session.posti}`
+            reply: `Nessun problema! Quale dato vuoi correggere?\n📋 Riepilogo:\n- Nome: ${session.nome}\n- Spettacolo: ${session.spettacolo}\n- Data: ${session.data}\n- Posti: ${session.posti}`
           });
         }
 
-        const fieldMap = {
-          "nome": "nome",
-          "spettacolo": "spettacolo",
-          "data": "data",
-          "posti": "posti"
-        };
-        for (const [field, _] of Object.entries(fieldMap)) {
-          if (msg.includes(field)) {
-            session[field] = "";
-          }
-        }
+        // Correzione dati
         if (extracted.nome) session.nome = extracted.nome;
         if (extracted.spettacolo) session.spettacolo = extracted.spettacolo;
         if (extracted.data) session.data = extracted.data;
@@ -449,7 +337,7 @@ ISTRUZIONI:
       // Tutti i dati presenti - chiede conferma
       session.waitingConfirmation = true;
       return res.json({
-        reply: `📋 RIEPLOGO PRENOTAZIONE:\n👤 Nome: ${session.nome}\n🎟 Spettacolo: ${session.spettacolo}\n📅 Data: ${session.data}\n🪑 Posti: ${session.posti}\n\nConfermi? Rispondi "SI" per procedere o "NO" per correggere algunos dato.`
+        reply: `📋 RIEPLOGO PRENOTAZIONE:\n👤 Nome: ${session.nome}\n🎟 Spettacolo: ${session.spettacolo}\n📅 Data: ${session.data}\n🪑 Posti: ${session.posti}\n\nConfermi? Rispondi "SI" per procedere o "NO" per correggere.`
       });
     }
 
@@ -457,7 +345,7 @@ ISTRUZIONI:
     // 💬 RISPOSTA NATURALE
     // ----------------------
     return res.json({
-      reply: aiText || "Benvenuto al Teatro Tordinona 🎭 Come posso accompagnarti?"
+      reply: aiText
     });
 
   } catch (error) {
