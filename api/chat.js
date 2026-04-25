@@ -1,8 +1,5 @@
-// ----------------------
-// 📅 SPETTACOLI
-// ----------------------
 const SPETTACOLI_FALLBACK = [
-  { titolo: "PROGRAMMAZIONE IN AGGIORNAMENTO", periodo: "contattaci per info" }
+  { titolo: "PROGRAMMAZIONE IN AGGIORNAMENTO", periodo: "contattaci per info", isFuture: true }
 ];
 
 const mesiMap = { gen: "01", feb: "02", mar: "03", apr: "04", mag: "05", giu: "06", lug: "07", ago: "08", set: "09", ott: "10", nov: "11", dic: "12" };
@@ -74,64 +71,38 @@ async function getSpettacoli() {
       const periodo = extractPeriodo(content);
       const startDate = periodo ? getStartDate(periodo) : null;
       const isFuture = !startDate || startDate >= today;
-      return {
-        titolo: titolo,
-        periodo: periodo,
-        isFuture: isFuture,
-        descrizione: content.slice(0, 200)
-      };
+      return { titolo, periodo, isFuture, descrizione: content.slice(0, 200) };
     }).filter(s => s.titolo);
 
     const future = spettacoli.filter(s => s.isFuture);
     console.log("Spettacoli totali:", spettacoli.length, "| futuri:", future.length);
     return future.length > 0 ? future : SPETTACOLI_FALLBACK;
-
   } catch (e) {
     console.error("Feed error:", e);
     return SPETTACOLI_FALLBACK;
   }
 }
-    console.error("Feed error:", e);
-    return SPETTACOLI_FALLBACK;
-  }
-}
 
-// ----------------------
-// 🧠 SESSIONI
-// ----------------------
 const sessions = {};
 
 function getSession(userId) {
   if (!sessions[userId]) {
-    sessions[userId] = {
-      nome: "",
-      spettacolo: "",
-      data: "",
-      posti: "",
-      waitingConfirmation: false,
-      history: []
-    };
+    sessions[userId] = { nome: "", spettacolo: "", data: "", posti: "", waitingConfirmation: false };
   }
   sessions[userId].waitingConfirmation = false;
   return sessions[userId];
 }
 
-// ----------------------
-// 📅 PARSING DATE SMART
-// ----------------------
 function parseDate(text) {
   const today = new Date();
   const msg = text.toLowerCase();
-
   if (msg.includes("oggi")) return today.toISOString().split("T")[0];
-
   if (msg.includes("domani")) {
     const d = new Date();
     d.setDate(today.getDate() + 1);
     return d.toISOString().split("T")[0];
   }
-
-  const giorni = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
+  const giorni = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
   for (let i = 0; i < giorni.length; i++) {
     if (msg.includes(giorni[i])) {
       const d = new Date();
@@ -140,70 +111,40 @@ function parseDate(text) {
       return d.toISOString().split("T")[0];
     }
   }
-
   return "";
 }
 
-// ----------------------
-// 🔎 ESTRAZIONE DATI
-// ----------------------
 function extractData(message, spettacoli) {
   const msg = message.toLowerCase();
-
   const postiMatch = msg.match(/\b(\d+)\b/);
   const posti = postiMatch ? postiMatch[1] : "";
-
-  const nomeMatch = message.match(/sono\s+([A-Za-z]+)|mi chiamo\s+([A-Za-z]+)|nome[:\s]+([A-Za-z]+)/i);
-  const nome = nomeMatch ? (nomeMatch[1] || nomeMatch[2] || nomeMatch[3]) : "";
-
+  const nomeMatch = message.match(/sono\s+([A-Za-z]+)|mi chiamo\s+([A-Za-z]+)/i);
+  const nome = nomeMatch ? (nomeMatch[1] || nomeMatch[2]) : "";
   let spettacolo = "";
   let data = parseDate(message);
-
   for (let s of spettacoli) {
     if (s.titolo && msg.includes(s.titolo.toLowerCase())) {
       spettacolo = s.titolo;
       if (!data && s.periodo) data = s.periodo;
       break;
     }
-    if (!spettacolo && s.periodo && msg.includes(s.periodo.toLowerCase()) && s.titolo) {
-      data = s.periodo;
-      spettacolo = s.titolo;
-      break;
-    }
   }
-
-  return {
-    posti,
-    nome,
-    data,
-    spettacolo
-  };
+  return { posti, nome, data, spettacolo };
 }
 
-// ----------------------
-// 🤖 HANDLER
-// ----------------------
 module.exports = async function handler(req, res) {
-
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
     const { message, userId = "default" } = req.body || {};
     if (!message) return res.json({ reply: "Scrivimi pure 😊" });
 
     const session = getSession(userId);
-
     const spettacoli = await getSpettacoli();
-
-    // ----------------------
-    // 🧠 ESTRAZIONE BACKEND
-    // ----------------------
     const extracted = extractData(message, spettacoli);
 
     if (extracted.posti) session.posti = extracted.posti;
@@ -211,45 +152,31 @@ module.exports = async function handler(req, res) {
     if (extracted.data) session.data = extracted.data;
     if (extracted.spettacolo) session.spettacolo = extracted.spettacolo;
 
-    // ----------------------
-    // 🧠 INTENT
-    // ----------------------
     const isBooking = /prenot|bigliett|posti|voglio|riserv/i.test(message);
-
-    // ----------------------
-    // 🎭 PROMPT TEATRALE
-    // ----------------------
     const isFirstContact = !session.nome && !session.spettacolo && !session.posti && !session.data;
-    const welcome = isFirstContact ? `Benvenuto al Teatro Tordinona! 🎭 Sono il tuo accompagnatore per la stagione teatrale.\n\n` : "";
 
+    const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭\n\n" : "";
     const prompt = `
-Sei l'assistente del Teatro Tordinona. Il tuo obiettivo è AIUTARE l'utente a prenotare o informarsi sugli spettacoli.
+Sei l'assistente del Teatro Tordinona.
 
-${welcome}PROGRAMMAZIONE ATTUALE (solo spettacoli futuri):
-${spettacoli.length > 0 ? spettacoli.map(s => `• ${s.periodo || "date da confermare"} - ${s.titolo}`).join("\n") : "Nessuno spettacolo in programma"}
+${welcome}PROGRAMMAZIONE:
+${spettacoli.map(s => `• ${s.titolo} (${s.periodo || "data da confermare"})`).join("\n")}
 
-DATI GIA' RACCOLTI:
+DATI RACCOLTI:
 - Nome: ${session.nome || "NON FORNITO"}
 - Spettacolo: ${session.spettacolo || "NON FORNITO"}
 - Data: ${session.data || "NON FORNITA"}
 - Posti: ${session.posti || "NON FORNITI"}
 
 ISTRUZIONI:
-1. Se l'utente vuole prenotare, chiedi i dati mancanti in modo naturale
-2. Estrai e usa TUTTE le informazioni utili dal messaggio dell'utente
-3. Se hai TUTTI i dati, conferma la prenotazione
-4. Se mancano dati, chiedili in modo conversazionale
-5. Se l'utente chiede informazioni, presenta gli spettacoli con data prima del titolo
-6. Rispondi in 1-2 frasi al massimo.
+1. Se l'utente vuole prenotare, chiedi i dati mancanti
+2. Estrai le informazioni dal messaggio
+3. Rispondi in 1-2 frasi
 `;
 
-    // ----------------------
-    // 🤖 OPENROUTER AI
-    // ----------------------
     let aiText = "";
-
     if (!process.env.OPENROUTER_API_KEY) {
-      console.error("OPENROUTER_API_KEY non configurata");
+      console.error("OPENROUTER_API_KEY mancante");
     } else {
       try {
         const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -265,119 +192,61 @@ ISTRUZIONI:
             messages: [{ role: "user", content: prompt }]
           })
         });
-
         const data = await aiResponse.json();
-
-        if (data.error) {
-          console.error("OpenRouter error:", data.error.message);
-        } else {
-          aiText = data?.choices?.[0]?.message?.content || "";
-        }
+        if (data.error) console.error("OpenRouter error:", data.error.message);
+        else aiText = data?.choices?.[0]?.message?.content || "";
       } catch (e) {
         console.error("OpenRouter error:", e.message);
       }
     }
 
     if (!aiText) {
-      console.log("AI failed - using fallback, spettacoli:", spettacoli.length);
-      const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭\n\n" : "";
+      console.log("AI failed, spettacoli:", spettacoli.length);
       const lista = spettacoli.map((s, i) => `${i + 1}. ${s.titolo} (${s.periodo || "data da confermare"})`).join("\n");
       aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa!`;
     }
 
-    // ----------------------
-    // 🎟 PRENOTAZIONE + CONFERMA
-    // ----------------------
     if (isBooking) {
       const msg = message.toLowerCase();
-      const missing =
-        !session.spettacolo ? "spettacolo" :
-        !session.nome ? "nome" :
-        !session.posti ? "posti" :
-        !session.data ? "data" : null;
+      const missing = !session.spettacolo ? "spettacolo" : !session.nome ? "nome" : !session.posti ? "posti" : !session.data ? "data" : null;
 
-      // Se in attesa di conferma
       if (session.waitingConfirmation) {
-        if (/^(si|conferma|ok|va bene|procedi|invio|si certo|sicuro)$/i.test(msg)) {
+        if (/^(si|conferma|ok|va bene|procedi|si certo)$/i.test(msg)) {
           const now = new Date().toISOString();
           await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: process.env.CHAT_ID,
-              text: `🎭 NUOVA PRENOTAZIONE
-
-👤 Nome: ${session.nome}
-🎟 Spettacolo: ${session.spettacolo}
-📅 Data: ${session.data}
-🪑 Posti: ${session.posti}
-⏰ Prenotato il: ${now}`
+              text: `🎭 NUOVA PRENOTAZIONE\n\n👤 Nome: ${session.nome}\n🎟 Spettacolo: ${session.spettacolo}\n📅 Data: ${session.data}\n🪑 Posti: ${session.posti}\n⏰ ${now}`
             })
           });
-
           sessions[userId] = getSession(userId);
-
-          return res.json({
-            reply: "È tutto pronto! 🎭 La tua prenotazione è stata inviata. Ti aspettiamo a teatro!"
-          });
+          return res.json({ reply: "È tutto pronto! 🎭 Prenotazione inviata. Ti aspettiamo a teatro!" });
         }
-
-        if (/^(no|cancella|annulla|correggo|cambia|modifica|corretto)$/i.test(msg)) {
+        if (/^(no|cancella|annulla)$/i.test(msg)) {
           session.waitingConfirmation = false;
-          return res.json({
-            reply: `Nessun problema! Quale dato vuoi correggere?\n📋 Riepilogo:\n- Nome: ${session.nome}\n- Spettacolo: ${session.spettacolo}\n- Data: ${session.data}\n- Posti: ${session.posti}`
-          });
+          return res.json({ reply: "Nessun problema! Quale dato vuoi correggere?" });
         }
-
-        // Correzione dati
         if (extracted.nome) session.nome = extracted.nome;
         if (extracted.spettacolo) session.spettacolo = extracted.spettacolo;
         if (extracted.data) session.data = extracted.data;
         if (extracted.posti) session.posti = extracted.posti;
-
-        const newMissing =
-          !session.spettacolo ? "spettacolo" :
-          !session.nome ? "nome" :
-          !session.posti ? "posti" :
-          !session.data ? "data" : null;
-
-        if (newMissing) {
-          return res.json({
-            reply: aiText || `Perfetto! Ma mi serve ancora: ${newMissing}`
-          });
-        }
-
+        const newMissing = !session.spettacolo ? "spettacolo" : !session.nome ? "nome" : !session.posti ? "posti" : !session.data ? "data" : null;
+        if (newMissing) return res.json({ reply: aiText || `Mi serve ancora: ${newMissing}` });
         session.waitingConfirmation = true;
-        return res.json({
-          reply: `Perfetto, dati aggiornati!\n\n📋 RIEPLOGO PRENOTAZIONE:\n👤 Nome: ${session.nome}\n🎟 Spettacolo: ${session.spettacolo}\n📅 Data: ${session.data}\n🪑 Posti: ${session.posti}\n\nConfermi? Rispondi "SI" per procedere o "NO" per correggere.`
-        });
+        return res.json({ reply: `📋 RIEPILOGO:\n👤 ${session.nome}\n🎟 ${session.spettacolo}\n📅 ${session.data}\n🪑 ${session.posti}\n\nConfermi?` });
       }
 
-      // Prima raccolta dati
-      if (missing) {
-        return res.json({
-          reply: aiText || `Mi racconti meglio? Mi manca ancora: ${missing}`
-        });
-      }
+      if (missing) return res.json({ reply: aiText || `Mi manca: ${missing}` });
 
-      // Tutti i dati presenti - chiede conferma
       session.waitingConfirmation = true;
-      return res.json({
-        reply: `📋 RIEPLOGO PRENOTAZIONE:\n👤 Nome: ${session.nome}\n🎟 Spettacolo: ${session.spettacolo}\n📅 Data: ${session.data}\n🪑 Posti: ${session.posti}\n\nConfermi? Rispondi "SI" per procedere o "NO" per correggere.`
-      });
+      return res.json({ reply: `📋 RIEPILOGO:\n👤 ${session.nome}\n🎟 ${session.spettacolo}\n📅 ${session.data}\n🪑 ${session.posti}\n\nConfermi?` });
     }
 
-    // ----------------------
-    // 💬 RISPOSTA NATURALE
-    // ----------------------
-    return res.json({
-      reply: aiText
-    });
-
+    return res.json({ reply: aiText });
   } catch (error) {
     console.error(error);
-    return res.json({
-      reply: "C'è stato un piccolo imprevisto tecnico."
-    });
+    return res.json({ reply: "C'è stato un errore tecnico." });
   }
 };
