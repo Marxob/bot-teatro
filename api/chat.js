@@ -283,7 +283,7 @@ ISTRUZIONI:
             "X-Title": "Teatro Tordinona Bot"
           },
           body: JSON.stringify({
-            model: "google/gemini-2.0-flash-exp-1219:free",
+            model: "nvidea/nemotron-3-super-120b-a12b:free",
             messages: [{ role: "user", content: prompt }]
           })
         });
