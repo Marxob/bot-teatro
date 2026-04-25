@@ -64,25 +64,32 @@ async function getSpettacoli() {
     if (!res.ok) throw new Error("Feed not available");
     const data = await res.json();
 
-    const spettacoli = (data.feed.entry || []).slice(0, 15).map(post => {
+    const entries = data.feed.entry || [];
+    console.log("Feed entries:", entries.length);
+
+    const spettacoli = entries.slice(0, 15).map(post => {
       const content = stripHtml(post.content?.$t || "");
+      const published = post.published?.$t || post.updated?.$t || "";
+      const titolo = post.title.$t;
+      const periodo = extractPeriodo(content) || extractPeriodo(published);
+      console.log("Spettacolo:", titolo, "| periodo:", periodo, "| published:", published);
       return {
-        titolo: post.title.$t,
-        periodo: extractPeriodo(content),
+        titolo: titolo,
+        periodo: periodo,
         descrizione: content.slice(0, 150)
+      const spettacoli = entries.slice(0, 15).map(post => {
+      const content = stripHtml(post.content?.$t || "");
+      const published = post.published?.$t || post.updated?.$t || "";
+      const titolo = post.title.$t;
+      const periodo = extractPeriodo(content) || published.split("T")[0];
+      return {
+        titolo: titolo,
+        periodo: periodo,
+        descrizione: content.slice(0, 200)
       };
     }).filter(s => s.titolo);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const filtered = spettacoli.filter(s => {
-      if (!s.periodo) return true;
-      const startDate = getStartDate(s.periodo);
-      return !startDate || startDate >= today;
-    });
-
-    return filtered.length > 0 ? filtered : SPETTACOLI_FALLBACK;
+    return spettacoli.length > 0 ? spettacoli : SPETTACOLI_FALLBACK;
 
   } catch (e) {
     console.error("Feed error:", e);
@@ -255,7 +262,7 @@ ISTRUZIONI:
             "X-Title": "Teatro Tordinona Bot"
           },
           body: JSON.stringify({
-            model: "google/gemma-4-26b-a4b-it:free",
+            model: "meta-llama/llama-3.2-3b-instruct:free",
             messages: [{ role: "user", content: prompt }]
           })
         });
