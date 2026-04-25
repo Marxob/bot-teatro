@@ -71,16 +71,6 @@ async function getSpettacoli() {
       const content = stripHtml(post.content?.$t || "");
       const published = post.published?.$t || post.updated?.$t || "";
       const titolo = post.title.$t;
-      const periodo = extractPeriodo(content) || extractPeriodo(published);
-      console.log("Spettacolo:", titolo, "| periodo:", periodo, "| published:", published);
-      return {
-        titolo: titolo,
-        periodo: periodo,
-        descrizione: content.slice(0, 150)
-      const spettacoli = entries.slice(0, 15).map(post => {
-      const content = stripHtml(post.content?.$t || "");
-      const published = post.published?.$t || post.updated?.$t || "";
-      const titolo = post.title.$t;
       const periodo = extractPeriodo(content) || published.split("T")[0];
       return {
         titolo: titolo,
