@@ -65,23 +65,32 @@ async function getSpettacoli() {
     const data = await res.json();
 
     const entries = data.feed.entry || [];
-    console.log("Feed entries:", entries.length);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const spettacoli = entries.slice(0, 15).map(post => {
+    const spettacoli = entries.slice(0, 20).map(post => {
       const content = stripHtml(post.content?.$t || "");
-      const published = post.published?.$t || post.updated?.$t || "";
       const titolo = post.title.$t;
-      const periodo = extractPeriodo(content) || published.split("T")[0];
+      const periodo = extractPeriodo(content);
+      const startDate = periodo ? getStartDate(periodo) : null;
+      const isFuture = !startDate || startDate >= today;
       return {
         titolo: titolo,
         periodo: periodo,
+        isFuture: isFuture,
         descrizione: content.slice(0, 200)
       };
     }).filter(s => s.titolo);
 
-    return spettacoli.length > 0 ? spettacoli : SPETTACOLI_FALLBACK;
+    const future = spettacoli.filter(s => s.isFuture);
+    console.log("Spettacoli totali:", spettacoli.length, "| futuri:", future.length);
+    return future.length > 0 ? future : SPETTACOLI_FALLBACK;
 
   } catch (e) {
+    console.error("Feed error:", e);
+    return SPETTACOLI_FALLBACK;
+  }
+}
     console.error("Feed error:", e);
     return SPETTACOLI_FALLBACK;
   }
@@ -252,7 +261,7 @@ ISTRUZIONI:
             "X-Title": "Teatro Tordinona Bot"
           },
           body: JSON.stringify({
-            model: "meta-llama/llama-3.2-3b-instruct:free",
+            model: "meta-llama/llama-3.1-8b-instruct:free",
             messages: [{ role: "user", content: prompt }]
           })
         });
@@ -270,10 +279,10 @@ ISTRUZIONI:
     }
 
     if (!aiText) {
-      console.log("Fallback triggered - spettacoli:", spettacoli.length);
-      const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭 Sono il tuo accompagnatore per la stagione teatrale.\n\n" : "";
-      const lista = spettacoli.map((s, i) => `${i + 1}. ${s.periodo} - ${s.titolo}`).join("\n");
-      aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa o chiama per prenotare: 02 1234567`;
+      console.log("AI failed - using fallback, spettacoli:", spettacoli.length);
+      const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭\n\n" : "";
+      const lista = spettacoli.map((s, i) => `${i + 1}. ${s.titolo} (${s.periodo || "data da confermare"})`).join("\n");
+      aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa!`;
     }
 
     // ----------------------
