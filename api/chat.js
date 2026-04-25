@@ -241,40 +241,16 @@ ISTRUZIONI:
     // 🤖 GEMINI
     // ----------------------
     let aiText = "";
-    let geminiError = "";
+    // ----------------------
+    // 🤖 OPENROUTER AI
+    // ----------------------
+    let aiText = "";
 
-    try {
-      if (!process.env.GEMINI_API_KEY) {
-        geminiError = "API key mancante";
-      } else {
-        const aiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
-            })
-          }
-        );
-
-        const data = await aiResponse.json();
-
-        if (data.error) {
-          geminiError = data.error.message;
-        } else {
-          aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        }
-      }
-    } catch (e) {
-      console.error("Gemini error:", e.message);
-      geminiError = e.message;
-    }
-
-    // Fallback to OpenRouter if Gemini fails
-    if (!aiText && process.env.OPENROUTER_API_KEY) {
+    if (!process.env.OPENROUTER_API_KEY) {
+      console.error("OPENROUTER_API_KEY non configurata");
+    } else {
       try {
-        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -283,30 +259,28 @@ ISTRUZIONI:
             "X-Title": "Teatro Tordinona Bot"
           },
           body: JSON.stringify({
-            model: "nvidea/nemotron-3-super-120b-a12b:free",
+            model: "nvidia/nemotron-3-super-120b-a12b:free",
             messages: [{ role: "user", content: prompt }]
           })
         });
 
-        const orData = await orResponse.json();
-        aiText = orData?.choices?.[0]?.message?.content || "";
-        console.log("Used OpenRouter fallback");
-      } catch (orErr) {
-        console.error("OpenRouter error:", orErr.message);
+        const data = await aiResponse.json();
+
+        if (data.error) {
+          console.error("OpenRouter error:", data.error.message);
+        } else {
+          aiText = data?.choices?.[0]?.message?.content || "";
+        }
+      } catch (e) {
+        console.error("OpenRouter error:", e.message);
       }
     }
 
     if (!aiText) {
-      console.log("Fallback triggered - spettacoli:", spettacoli.length, "geminiError:", geminiError);
+      console.log("Fallback triggered - spettacoli:", spettacoli.length);
       const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭 Sono il tuo accompagnatore per la stagione teatrale.\n\n" : "";
       const lista = spettacoli.map((s, i) => `${i + 1}. ${s.periodo} - ${s.titolo}`).join("\n");
-      aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa o chiama direttamente per prenotare: 02 1234567`;
-    }
-
-    if (geminiError.includes("quota") || geminiError.includes("exceeded")) {
-      return res.json({
-        reply: `⚠️ Temporaneo sovraccarico del servizio AI.\n\n${aiText}\n\nOppure chiamaci per prenotare: 02 1234567`
-      });
+      aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa o chiama per prenotare: 02 1234567`;
     }
 
     // ----------------------
