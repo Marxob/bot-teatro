@@ -155,23 +155,23 @@ module.exports = async function handler(req, res) {
     const isBooking = /prenot|bigliett|posti|voglio|riserv/i.test(message);
     const isFirstContact = !session.nome && !session.spettacolo && !session.posti && !session.data;
 
-    const welcome = isFirstContact ? "Benvenuto al Teatro Tordinona! 🎭\n\n" : "";
     const prompt = `
-Sei l'assistente del Teatro Tordinona.
+Sei l'assistente del Teatro Tordinona. Accogli l'utente in modo caldo e teatrale.
 
-${welcome}PROGRAMMAZIONE:
-${spettacoli.map(s => `• ${s.titolo} (${s.periodo || "data da confermare"})`).join("\n")}
+${isFirstContact ? "Saluta calorosamente l'utente come primo contatto!" : ""}
 
 DATI RACCOLTI:
-- Nome: ${session.nome || "NON FORNITO"}
-- Spettacolo: ${session.spettacolo || "NON FORNITO"}
-- Data: ${session.data || "NON FORNITA"}
-- Posti: ${session.posti || "NON FORNITI"}
+- Nome: ${session.nome || "non ancora"}
+- Spettacolo: ${session.spettacolo || "non ancora"}
+- Data: ${session.data || "non ancora"}
+- Posti: ${session.posti || "non ancora"}
 
 ISTRUZIONI:
-1. Se l'utente vuole prenotare, chiedi i dati mancanti
-2. Estrai le informazioni dal messaggio
-3. Rispondi in 1-2 frasi
+1. Se primo contatto, saluta con calore e teatralità
+2. Se l'utente vuole prenotare, chiedi i dati mancanti uno alla volta
+3. Estrai e usa tutte le info dal messaggio
+4. Rispondi in 1-2 frasi al massimo
+5. NON elencare la programmazione
 `;
 
     let aiText = "";
@@ -201,9 +201,8 @@ ISTRUZIONI:
     }
 
     if (!aiText) {
-      console.log("AI failed, spettacoli:", spettacoli.length);
-      const lista = spettacoli.map((s, i) => `${i + 1}. ${s.titolo} (${s.periodo || "data da confermare"})`).join("\n");
-      aiText = `${welcome}Ecco gli spettacoli in programma:\n${lista}\n\nScrivimi quale ti interessa!`;
+      console.log("AI failed");
+      aiText = "🎭 servizio non disponibile";
     }
 
     if (isBooking) {
